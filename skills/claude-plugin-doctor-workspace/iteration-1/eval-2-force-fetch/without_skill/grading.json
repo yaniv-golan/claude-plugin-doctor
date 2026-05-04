@@ -1,0 +1,35 @@
+{
+  "expectations": [
+    {
+      "text": "identifies the silent-cooldown / #46081 root cause",
+      "passed": true,
+      "evidence": "'a known Claude Code bug (Anthropic issue #46081). The CLI silently absorbs HTTP 304/429 responses during a fetch cooldown.'"
+    },
+    {
+      "text": "recommends cpd refresh --force-fetch --yes",
+      "passed": true,
+      "evidence": "'cpd refresh founder-skills --force-fetch --yes' verbatim."
+    },
+    {
+      "text": "surfaces destructive nature and asks for confirmation",
+      "passed": true,
+      "evidence": "'This is marked destructive' and offers `--dry-run` to preview before running. Treats the action as needing user judgment, though doesn't say 'I will run it for you, confirm?' as explicitly as the with-skill version."
+    },
+    {
+      "text": "mentions backup behavior",
+      "passed": true,
+      "evidence": "'after backing up .git/HEAD and the origin ref to .git/cpd-backups/'."
+    },
+    {
+      "text": "presents fix in plain English",
+      "passed": true,
+      "evidence": "Includes a layer-by-layer table and step-by-step follow-ups; clear prose, no raw JSON paste."
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  }
+}

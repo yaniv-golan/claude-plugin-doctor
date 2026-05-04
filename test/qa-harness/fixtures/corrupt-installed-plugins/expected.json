@@ -1,0 +1,15 @@
+{
+  "current": {
+    "scan": { "exitCode": 1 },
+    "list": { "exitCode": 1 },
+    "check": { "pluginId": "bar@foo", "exitCode": 1 },
+    "cache --orphans": { "exitCode": 0, "exactOrphanCount": 0, "exactStrayCount": 0 }
+  },
+  "desired": {
+    "scan": { "exitCode": 1, "errorCode": "E_PARSE_INSTALLED_PLUGINS" },
+    "list": { "exitCode": 1, "errorCode": "E_PARSE_INSTALLED_PLUGINS" },
+    "check": { "pluginId": "bar@foo", "exitCode": 1, "errorCode": "E_PARSE_INSTALLED_PLUGINS" },
+    "cache --orphans": { "exitCode": 0, "exactOrphanCount": 0, "exactStrayCount": 0 }
+  },
+  "active": "current"
+}

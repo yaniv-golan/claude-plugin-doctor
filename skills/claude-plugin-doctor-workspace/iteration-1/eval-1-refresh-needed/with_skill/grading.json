@@ -1,0 +1,35 @@
+{
+  "expectations": [
+    {
+      "text": "names refresh-needed or marketplace-clone-stale",
+      "passed": true,
+      "evidence": "'local marketplace clone is behind the remote' and '4 commits behind' explicitly identify the underlying drift kind."
+    },
+    {
+      "text": "recommends marketplace-update + plugin-update chain",
+      "passed": true,
+      "evidence": "'claude plugin marketplace update acme-marketplace && claude plugin update proof-engine@acme-marketplace' is the recommended fix."
+    },
+    {
+      "text": "presents fix in plain English",
+      "passed": true,
+      "evidence": "Response is structured prose with headers ('What's wrong', 'Why specifically', 'Recommended fix'); no raw JSON paste."
+    },
+    {
+      "text": "no spurious destructive-warning",
+      "passed": true,
+      "evidence": "Explicitly labels the fix 'safe, two commands chained' and 'non-destructive'."
+    },
+    {
+      "text": "no false-positive on other drift kinds",
+      "passed": true,
+      "evidence": "Only mentions marketplace-update-broken as a fallback IF the standard refresh fails to advance HEAD; correctly attributes the current state to refresh-needed."
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "0193f4a1-7c1d-7000-aa5b-g7h8i9j0k1l2",
+  "startedAt": "2026-05-03T14:45:33.881Z",
+  "finishedAt": "2026-05-03T14:45:34.402Z",
+  "topology": {
+    "ccdRoot": "/Users/me/.claude/plugins",
+    "coworkRoots": [],
+    "skillsPlugin": null,
+    "sessionLocals": [],
+    "scannedAt": "2026-05-03T14:45:33.881Z"
+  },
+  "upstreams": {
+    "local-mp": {
+      "kind": "git-remote",
+      "headRemote": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      "behindCommits": 0,
+      "fetchedAt": "2026-05-03T14:45:34.211Z"
+    }
+  },
+  "caches": {
+    "my-dev-plugin@local-mp": [
+      {
+        "layer": "install_snapshot",
+        "data": {
+          "installPath": "/Users/me/.claude/plugins/cache/local-mp/my-dev-plugin/0.1.0",
+          "installedVersion": "0.1.0",
+          "installedGitCommitSha": "111aaa222bbb333ccc444ddd555eee666fff7777",
+          "marketplaceCloneHead": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+        }
+      }
+    ]
+  },
+  "marketplaceCaches": {
+    "local-mp": [
+      {
+        "layer": "marketplace_clone",
+        "data": {
+          "cloneDir": "/Users/me/.claude/plugins/marketplaces/local-mp",
+          "headLocal": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "headRemote": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+          "remoteUrl": "git@github.com:me/my-dev-marketplace.git",
+          "sourceType": "github",
+          "behindCommits": 0
+        }
+      }
+    ]
+  },
+  "rpmCaches": {},
+  "resolvers": {
+    "my-dev-plugin@local-mp": {
+      "cli": { "version": "0.1.0", "resolvedFrom": "plugin.json-in-clone" },
+      "badge": { "version": "0.1.0", "resolvedFrom": "plugin.json-in-clone" },
+      "sessionStart": { "version": "0.1.0", "resolvedFrom": "installed_plugins.json" }
+    }
+  },
+  "drifts": [
+    {
+      "kind": "bump-needed",
+      "subject": { "kind": "plugin", "ref": { "name": "my-dev-plugin", "marketplace": "local-mp" } }
+    }
+  ],
+  "recommendations": [
+    {
+      "id": "rec-1",
+      "ordinal": 1,
+      "description": "Updates are blocked because `plugin.json#version` is unchanged across commits — `claude plugin update` compares versions, sees a match, and stops. To republish the changes you need to: (1) edit `plugin.json` and bump `version` (e.g. 0.1.0 → 0.1.1), (2) `git commit -am 'bump version to 0.1.1'`, (3) `git push`, (4) `claude plugin marketplace update local-mp`, (5) `claude plugin update my-dev-plugin@local-mp`. The marketplace clone is fresh; the version field is the only thing stuck.",
+      "fixes": [{ "kind": "bump-needed", "pluginRefKey": "my-dev-plugin@local-mp" }],
+      "doesNotFix": [],
+      "risk": "safe",
+      "requiresYes": false,
+      "requiresManualStep": true
+    }
+  ],
+  "exitCode": 3,
+  "logFile": "/Users/me/.claude-plugin-doctor/logs/cpd-2026-05-03T14-45-33.log"
+}

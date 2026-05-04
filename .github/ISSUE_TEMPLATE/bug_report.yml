@@ -1,0 +1,50 @@
+name: Bug report
+description: Something is broken
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `cpd --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Linux (not yet supported — on the roadmap)
+        - Windows (not yet supported — later)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands. A failing test in the style of `test/integration/scan.test.ts` (synthetic Claude userData under a temp dir) makes this dramatically easier to fix.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual output
+      description: Paste the output (use `--json` if relevant).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected output
+    validations:
+      required: true
+  - type: textarea
+    id: logfile
+    attributes:
+      label: Log file
+      description: Optionally attach the contents of `~/.claude-plugin-doctor/logs/cpd-*.log` (redact paths/IDs as needed). NDJSON, one JSON object per line — not a single JSON document, so render as plain text.
+      render: text

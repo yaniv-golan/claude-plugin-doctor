@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest a new capability or behavior change
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What pain are you hitting today? Be concrete.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed change
+      description: What should `cpd` do instead?
+    validations:
+      required: true
+  - type: input
+    id: related_layer
+    attributes:
+      label: Related cache layer (if any)
+      description: e.g. "Layer 3 — Cowork mirror" or "Marketplace clone". See the Architecture & Design Gist linked from the README.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

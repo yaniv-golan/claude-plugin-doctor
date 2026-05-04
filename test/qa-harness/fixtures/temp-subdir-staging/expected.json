@@ -1,0 +1,9 @@
+{
+  "cache --orphans": {
+    "exitCode": 0,
+    "minTotalStrayBytes": 131072,
+    "exactOrphanCount": 0,
+    "exactStrayCount": 1,
+    "strayReason": "temp-staging-dir"
+  }
+}

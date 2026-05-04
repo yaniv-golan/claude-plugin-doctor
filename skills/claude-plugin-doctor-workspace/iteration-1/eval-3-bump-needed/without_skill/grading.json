@@ -1,0 +1,35 @@
+{
+  "expectations": [
+    {
+      "text": "identifies bump-needed / plugin.json#version unchanged",
+      "passed": true,
+      "evidence": "'you haven't bumped `version` in `plugin.json`' + 'compares the version field' explanation."
+    },
+    {
+      "text": "presents numbered manual steps",
+      "passed": true,
+      "evidence": "Five numbered steps."
+    },
+    {
+      "text": "does not auto-execute version bump",
+      "passed": true,
+      "evidence": "Doesn't propose to auto-edit; presents the bump as something the user does."
+    },
+    {
+      "text": "presents fix in plain English",
+      "passed": true,
+      "evidence": "Clear prose with headers; no raw JSON paste."
+    },
+    {
+      "text": "no false-positive on refresh-needed",
+      "passed": true,
+      "evidence": "Explicitly states 'the marketplace clone is fully up to date (local HEAD deadbeef\u2026 matches the remote)' \u2014 rules out refresh-needed."
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  }
+}

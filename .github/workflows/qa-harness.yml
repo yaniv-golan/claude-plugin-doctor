@@ -1,0 +1,79 @@
+name: qa-harness
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Pre-release / nightly full run: includes the truly-massive perf
+  # fixture (1000 plugins × 50 marketplaces) which adds ~4 min runtime.
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "fast (default) | full"
+        required: false
+        default: "fast"
+  schedule:
+    # Pre-release-tier full sweep every Sunday 06:00 UTC.
+    - cron: "0 6 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-harness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast:
+    # Per-PR tier — driver + vitest invariants. ~30 s on macos-latest.
+    # cpd v0.1.0 is macOS-only (src/paths.ts:32 throws on other platforms);
+    # the matrix expands to Linux when v0.2 lands platform support.
+    if: github.event_name != 'workflow_dispatch' || inputs.mode != 'full'
+    name: qa-harness fast (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      # `truncate -s` is GNU coreutils on Ubuntu and BSD on macOS; both
+      # support `-s <size>`. `jq` is preinstalled on both runners.
+      - run: npm ci
+      - run: npm run build
+      - name: Driver — per-fixture × per-command × per-flag
+        run: npm run qa-harness
+      - name: Vitest cross-command invariants
+        # Already runs as part of `npm test` in ci.yml, but rerun here
+        # standalone so a qa-harness regression is attributed to this
+        # workflow rather than blamed on the broader test suite.
+        run: npx vitest run test/qa-harness/invariants.test.ts
+
+  full:
+    # Pre-release tier — adds truly-massive (1000 plugins / 50 mps).
+    # Runs only via workflow_dispatch (mode=full) or scheduled cron.
+    if: |
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'full') ||
+      github.event_name == 'schedule'
+    name: qa-harness full (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Driver — full tier (includes truly-massive)
+        run: bash scripts/qa-harness.sh --full
+      - name: Vitest cross-command invariants — full tier
+        env:
+          CPD_QA_HARNESS_FULL: "1"
+        run: npx vitest run test/qa-harness/invariants.test.ts

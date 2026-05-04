@@ -1,0 +1,6 @@
+{
+  "list": { "exitCode": 2 },
+  "topology": { "exitCode": 0 },
+  "check": { "pluginId": "alpha@acme", "exitCode": 2 },
+  "cache --orphans": { "exitCode": 0, "exactOrphanCount": 0, "exactStrayCount": 0 }
+}
