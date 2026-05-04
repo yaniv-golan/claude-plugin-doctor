@@ -185,15 +185,26 @@ describe.runIf(process.platform === "darwin")("CLI integration", () => {
       path.join(plugins, "installed_plugins.json"),
       JSON.stringify({ version: 2, plugins: installed }),
     );
-    // Run cpd scan with output piped through cat — this forces stdout to be
-    // a non-blocking pipe (the failure mode the fix targets).
+    // Run cpd scan via spawnSync — stdout is connected to a Node pipe (not a
+    // TTY), which exercises the same `process.stdout.isTTY === false` code
+    // path the original `| cat` shell pipe targets. argv form avoids
+    // shell-command construction (CodeQL: js/shell-command-injection-from-environment).
     const r = spawnSync(
-      "/bin/sh",
+      "node",
       [
-        "-c",
-        `node ${path.join(ROOT, "dist", "cli.js")} scan --no-network --no-progress --json --no-log-file 2>/dev/null | cat`,
+        path.join(ROOT, "dist", "cli.js"),
+        "scan",
+        "--no-network",
+        "--no-progress",
+        "--json",
+        "--no-log-file",
       ],
-      { encoding: "utf8", env: baseEnv(home) },
+      {
+        encoding: "utf8",
+        env: baseEnv(home),
+        stdio: ["ignore", "pipe", "ignore"],
+        maxBuffer: 16 * 1024 * 1024,
+      },
     );
     expect(r.stdout.length).toBeGreaterThan(64 * 1024); // proves >64KB written
     // And parses cleanly.
