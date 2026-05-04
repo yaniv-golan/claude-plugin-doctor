@@ -1,0 +1,35 @@
+{
+  "expectations": [
+    {
+      "text": "identifies bump-needed / plugin.json#version unchanged",
+      "passed": true,
+      "evidence": "'you've been pushing code commits without bumping `plugin.json#version`. It's still `0.1.0` on every commit.'"
+    },
+    {
+      "text": "presents numbered manual steps",
+      "passed": true,
+      "evidence": "Five numbered steps from edit \u2192 commit \u2192 push \u2192 marketplace update \u2192 plugin update."
+    },
+    {
+      "text": "does not auto-execute version bump",
+      "passed": true,
+      "evidence": "'There's nothing for me to auto-run here \u2014 the version bump has to come from you, in your repo.'"
+    },
+    {
+      "text": "presents fix in plain English",
+      "passed": true,
+      "evidence": "Clear prose with bolded headers; no raw JSON paste."
+    },
+    {
+      "text": "no false-positive on refresh-needed",
+      "passed": true,
+      "evidence": "Explicitly states 'your local clone is fresh and matches the remote (headLocal == headRemote, 0 commits behind)' \u2014 rules out refresh-needed as the cause."
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  }
+}

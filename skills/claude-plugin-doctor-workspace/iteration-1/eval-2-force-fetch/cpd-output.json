@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "0193f4a1-7c1d-7000-9b4f-f6g7h8i9j0k1",
+  "startedAt": "2026-05-03T14:30:01.220Z",
+  "finishedAt": "2026-05-03T14:30:02.117Z",
+  "topology": {
+    "ccdRoot": "/Users/me/.claude/plugins",
+    "coworkRoots": [],
+    "skillsPlugin": null,
+    "sessionLocals": [],
+    "scannedAt": "2026-05-03T14:30:01.220Z"
+  },
+  "upstreams": {
+    "founder-skills": {
+      "kind": "git-remote",
+      "headRemote": "bc04331bc04331bc04331bc04331bc04331bc043",
+      "behindCommits": 27,
+      "fetchedAt": "2026-05-03T14:30:01.918Z"
+    }
+  },
+  "caches": {
+    "founder-skills@founder-skills": [
+      {
+        "layer": "install_snapshot",
+        "data": {
+          "installPath": "/Users/me/.claude/plugins/cache/founder-skills/founder-skills/0.2.0",
+          "installedVersion": "0.2.0",
+          "installedGitCommitSha": "b54ecd5b54ecd5b54ecd5b54ecd5b54ecd5b54ec",
+          "marketplaceCloneHead": "b54ecd5b54ecd5b54ecd5b54ecd5b54ecd5b54ec"
+        }
+      }
+    ]
+  },
+  "marketplaceCaches": {
+    "founder-skills": [
+      {
+        "layer": "marketplace_clone",
+        "data": {
+          "cloneDir": "/Users/me/.claude/plugins/marketplaces/founder-skills",
+          "headLocal": "b54ecd5b54ecd5b54ecd5b54ecd5b54ecd5b54ec",
+          "headRemote": "bc04331bc04331bc04331bc04331bc04331bc043",
+          "remoteUrl": "git@github.com:lool-ventures/founder-skills.git",
+          "sourceType": "github",
+          "behindCommits": 27,
+          "knownMarketplacesLastUpdated": "2026-05-02T18:14:00.000Z"
+        }
+      }
+    ]
+  },
+  "rpmCaches": {},
+  "resolvers": {
+    "founder-skills@founder-skills": {
+      "cli": { "version": "0.2.0", "resolvedFrom": "plugin.json-in-clone" },
+      "badge": { "version": "0.2.0", "resolvedFrom": "plugin.json-in-clone" },
+      "sessionStart": { "version": "0.2.0", "resolvedFrom": "installed_plugins.json" }
+    }
+  },
+  "drifts": [
+    {
+      "kind": "marketplace-update-broken",
+      "subject": { "kind": "marketplace", "ref": { "name": "founder-skills" } }
+    }
+  ],
+  "recommendations": [
+    {
+      "id": "rec-1",
+      "ordinal": 1,
+      "description": "`claude plugin marketplace update founder-skills` is silently failing (Anthropic issue #46081 — HTTP 304/429 cooldown absorbed). Bypass with cpd's force-fetch: runs `git fetch origin && git reset --hard origin/<default-branch>` directly on the marketplace clone, after backing up `.git/HEAD` and the origin ref to `.git/cpd-backups/`.",
+      "cmd": "cpd refresh founder-skills --force-fetch --yes",
+      "fixes": [{ "kind": "marketplace-update-broken", "marketplaceRefKey": "founder-skills" }],
+      "doesNotFix": [],
+      "risk": "destructive",
+      "requiresYes": true,
+      "requiresManualStep": false
+    }
+  ],
+  "exitCode": 3,
+  "logFile": "/Users/me/.claude-plugin-doctor/logs/cpd-2026-05-03T14-30-01.log"
+}

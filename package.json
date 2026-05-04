@@ -1,0 +1,74 @@
+{
+  "name": "claude-plugin-doctor",
+  "version": "0.1.0",
+  "description": "Diagnose drift across the six cache layers of the Claude Code / Claude Desktop plugin system.",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "claude-desktop",
+    "plugin",
+    "marketplace",
+    "doctor",
+    "diagnostics",
+    "cli"
+  ],
+  "homepage": "https://github.com/yaniv-golan/claude-plugin-doctor#readme",
+  "bugs": "https://github.com/yaniv-golan/claude-plugin-doctor/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yaniv-golan/claude-plugin-doctor.git"
+  },
+  "author": "Yaniv Golan",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "claude-plugin-doctor": "./dist/cli.js",
+    "cpd": "./dist/cli.js"
+  },
+  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc && chmod +x dist/cli.js",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check . && node scripts/check-tier-purity.mjs",
+    "lint:tiers": "node scripts/check-tier-purity.mjs",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "qa-harness": "npm run build && bash scripts/qa-harness.sh",
+    "qa-harness:full": "CPD_QA_HARNESS_FULL=1 npm run build && bash scripts/qa-harness.sh --full && CPD_QA_HARNESS_FULL=1 vitest run test/qa-harness/invariants.test.ts",
+    "prepare": "simple-git-hooks",
+    "changeset": "changeset",
+    "release": "changeset publish",
+    "version:sync": "node scripts/sync-versions.mjs",
+    "version": "node scripts/sync-versions.mjs && git add package.json .claude-plugin/plugin.json .claude-plugin/marketplace.json skills/claude-plugin-doctor/SKILL.md"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "npx --no -- biome check --staged --no-errors-on-unmatched"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "picocolors": "^1.1.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@changesets/changelog-github": "^0.6.0",
+    "@changesets/cli": "^2.27.0",
+    "@types/node": "^20.14.0",
+    "simple-git-hooks": "^2.11.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  }
+}

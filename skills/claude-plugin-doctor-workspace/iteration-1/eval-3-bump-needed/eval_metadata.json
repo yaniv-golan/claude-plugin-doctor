@@ -1,0 +1,27 @@
+{
+  "eval_id": 3,
+  "eval_name": "bump-needed",
+  "prompt": "I'm a plugin author. I've been editing my plugin's source and pushing commits to the marketplace repo. But `claude plugin update my-dev-plugin@local-mp` keeps saying 'already at latest version' even though I just pushed new code. I ran `cpd --json --no-progress --no-log-file` — output in `cpd-output.json`. What am I doing wrong?",
+  "assertions": [
+    {
+      "name": "identifies bump-needed / plugin.json#version unchanged",
+      "description": "Output explains that `plugin.json#version` did not change across commits, which is why `claude plugin update` is a silent no-op."
+    },
+    {
+      "name": "presents numbered manual steps",
+      "description": "Output walks through the bump process as a numbered or otherwise structured set of manual steps (edit plugin.json, commit, push, update marketplace, update plugin)."
+    },
+    {
+      "name": "does not auto-execute version bump",
+      "description": "Output does NOT propose to automatically edit plugin.json or run the bump itself; it leaves the manual step to the user."
+    },
+    {
+      "name": "presents fix in plain English",
+      "description": "Output translates the JSON into natural language for the user, not raw JSON."
+    },
+    {
+      "name": "no false-positive on refresh-needed",
+      "description": "Output does NOT recommend `claude plugin marketplace update` as the standalone fix — that wouldn't help here because the marketplace clone is already fresh; the user has to bump the version first."
+    }
+  ]
+}

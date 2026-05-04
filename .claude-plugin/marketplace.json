@@ -1,0 +1,34 @@
+{
+  "name": "cpd",
+  "owner": {
+    "name": "Yaniv Golan",
+    "email": "yaniv@golan.name"
+  },
+  "metadata": {
+    "description": "claude-plugin-doctor — diagnose drift across the six cache layers of the Claude Code / Claude Desktop plugin system.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "claude-plugin-doctor",
+      "source": ".",
+      "description": "Run `cpd` from inside Claude Code or Claude Cowork to diagnose plugin staleness and recommend the minimum-impact fix. Requires the `cpd` binary on PATH (install separately via `npm i -g claude-plugin-doctor`).",
+      "author": {
+        "name": "Yaniv Golan",
+        "email": "yaniv@golan.name"
+      },
+      "category": "diagnostics",
+      "tags": [
+        "claude",
+        "claude-code",
+        "claude-desktop",
+        "claude-cowork",
+        "plugin",
+        "marketplace",
+        "doctor",
+        "diagnostics",
+        "cache-drift"
+      ]
+    }
+  ]
+}

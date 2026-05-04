@@ -1,0 +1,82 @@
+[
+  {
+    "query": "ok this is driving me nuts. I just bumped the version in my-skills/plugin.json from 0.3.2 to 0.3.3, committed, pushed to main on github, and ran `claude plugin marketplace update my-skills` then `claude plugin update my-skills@my-skills`. Both said success. but in claude desktop the skill is STILL on 0.3.2. the SKILL.md still has yesterday's content. what gives??",
+    "should_trigger": true
+  },
+  {
+    "query": "claude plugin update keeps saying \"already at latest version\" but I literally just pushed a fix 5 minutes ago and force-pulled the marketplace. its anthropics/claude-plugins-official, plugin name is `code-reviewer`. nothing changed in the installed version. help",
+    "should_trigger": true
+  },
+  {
+    "query": "saw a github issue about anthropic plugin caching, https://github.com/anthropics/claude-code/issues/46081 — i think i'm hitting it. my marketplace clone for the founder-skills MP keeps reporting it pulled fine but hasn't actually moved off commit b54ecd5 in over a week. how do I bypass this",
+    "should_trigger": true
+  },
+  {
+    "query": "I'm a plugin author working on `claude-plugin-doctor` 😅 and i pushed three commits since my last release. the desktop \"Update available\" badge isn't showing for testers even though the plugin.json bump is in main. my SKILL.md content has changed but no one sees it",
+    "should_trigger": true
+  },
+  {
+    "query": "running cpd --json | jq '.drifts[]' on my machine and i see this thing called `marketplace-update-broken` for two of my marketplaces. what does that actually mean, and is there a way to force-refresh without nuking everything",
+    "should_trigger": true
+  },
+  {
+    "query": "after a fresh `npm install -g claude-code-update` and `claude plugin install acme-tools@acme-marketplace` the plugin is in installed_plugins.json but if i look in ~/.claude/plugins/cache/acme-marketplace/acme-tools/ the directory is empty — no files. nothing loads. how do i recover from this without doing a full reinstall of every plugin",
+    "should_trigger": true
+  },
+  {
+    "query": "stuck plugin help — Claude Desktop has been showing the old version of the founder-skills plugin in the chat for like 2 days. quitting and relaunching doesn't help. claude plugin marketplace update succeeded on the cli (twice) but its still old. is this a marketplace cache problem or something else? am on macos 14.",
+    "should_trigger": true
+  },
+  {
+    "query": "claude plugin update is no-op'ing on me even after a full marketplace refresh. version field in my plugin.json hasn't changed across 6 commits because i thought it would auto-detect new commits. i guess that's wrong? how do i unstick this without forcing every test user to reinstall",
+    "should_trigger": true
+  },
+  {
+    "query": "between my desktop app and the cli they're showing different versions of the same plugin (0.4.1 vs 0.4.0). the marketplace.json catalog version field says 0.4.0, the plugin.json on github says 0.4.1, the plugin source is github type. i want them in sync — what's the right surface to fix",
+    "should_trigger": true
+  },
+  {
+    "query": "diagnose why my Claude plugin is loading stale code please",
+    "should_trigger": true
+  },
+  {
+    "query": "how do I write a plugin.json from scratch for my claude code plugin? i want commands and a skill. is there a schema reference",
+    "should_trigger": false
+  },
+  {
+    "query": "claude plugin validate is failing on my manifest with `unknown field 'commandos'` — i think i mistyped commands. can you check my plugin.json",
+    "should_trigger": false
+  },
+  {
+    "query": "i ran `claude doctor` and it says i'm on claude code 2.1.119 but the latest is 2.1.120. how do i update the claude cli itself (not a plugin)",
+    "should_trigger": false
+  },
+  {
+    "query": "my npm-installed cli `eslint-plugin-react` won't update past 7.34. running `npm i -g eslint-plugin-react@latest` claims success but the version is still 7.34. probably a npm cache issue?",
+    "should_trigger": false
+  },
+  {
+    "query": "i'm building a marketplace for our internal plugins at acme corp. how do i set up the marketplace.json file and what fields are mandatory. nothing is installed yet, this is greenfield",
+    "should_trigger": false
+  },
+  {
+    "query": "MCP server connection keeps dropping in claude code, the mcp tab shows `disconnected` for our internal-tools server. error in the logs is `ECONNREFUSED`. nothing to do with plugins per se but its the same workspace",
+    "should_trigger": false
+  },
+  {
+    "query": "claude code keeps re-prompting me for permission on the `Bash(git push:*)` rule even though i added it to .claude/settings.json. is the settings file being cached somewhere?",
+    "should_trigger": false
+  },
+  {
+    "query": "i deleted one of my claude code plugins by removing the install dir manually. now claude desktop crashes on startup. how do i recover (and probably reinstall properly next time)",
+    "should_trigger": true
+  },
+  {
+    "query": "is there a way to see all the plugins i've installed across all marketplaces, with their versions, in a flat table? i want to audit what's on this machine",
+    "should_trigger": false
+  },
+  {
+    "query": "how do i write a SKILL.md that triggers reliably on plugin staleness questions? i need help with the description field",
+    "should_trigger": false
+  }
+]

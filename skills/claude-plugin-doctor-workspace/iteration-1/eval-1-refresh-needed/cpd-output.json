@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "0193f4a1-7c1d-7000-8a3e-e5f6g7h8i9j0",
+  "startedAt": "2026-05-03T14:22:11.014Z",
+  "finishedAt": "2026-05-03T14:22:11.510Z",
+  "topology": {
+    "ccdRoot": "/Users/me/.claude/plugins",
+    "coworkRoots": [],
+    "skillsPlugin": null,
+    "sessionLocals": [],
+    "scannedAt": "2026-05-03T14:22:11.014Z"
+  },
+  "upstreams": {
+    "acme-marketplace": {
+      "kind": "git-remote",
+      "headRemote": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+      "behindCommits": 4,
+      "fetchedAt": "2026-05-03T14:22:11.412Z"
+    }
+  },
+  "caches": {
+    "proof-engine@acme-marketplace": [
+      {
+        "layer": "install_snapshot",
+        "data": {
+          "installPath": "/Users/me/.claude/plugins/cache/acme-marketplace/proof-engine/0.3.1",
+          "installedVersion": "0.3.1",
+          "installedGitCommitSha": "e5f6g7h8e5f6g7h8e5f6g7h8e5f6g7h8e5f6g7h8",
+          "marketplaceCloneHead": "e5f6g7h8e5f6g7h8e5f6g7h8e5f6g7h8e5f6g7h8"
+        }
+      }
+    ]
+  },
+  "marketplaceCaches": {
+    "acme-marketplace": [
+      {
+        "layer": "marketplace_clone",
+        "data": {
+          "cloneDir": "/Users/me/.claude/plugins/marketplaces/acme-marketplace",
+          "headLocal": "e5f6g7h8e5f6g7h8e5f6g7h8e5f6g7h8e5f6g7h8",
+          "headRemote": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+          "remoteUrl": "git@github.com:acme/marketplace.git",
+          "sourceType": "github",
+          "behindCommits": 4
+        }
+      }
+    ]
+  },
+  "rpmCaches": {},
+  "resolvers": {
+    "proof-engine@acme-marketplace": {
+      "cli": { "version": "0.4.0", "resolvedFrom": "marketplace.json" },
+      "badge": { "version": "0.4.0", "resolvedFrom": "marketplace.json" },
+      "sessionStart": { "version": "0.3.1", "resolvedFrom": "installed_plugins.json" }
+    }
+  },
+  "drifts": [
+    {
+      "kind": "refresh-needed",
+      "subject": {
+        "kind": "plugin",
+        "ref": { "name": "proof-engine", "marketplace": "acme-marketplace" }
+      }
+    }
+  ],
+  "recommendations": [
+    {
+      "id": "rec-1",
+      "ordinal": 1,
+      "description": "Marketplace clone behind remote — refresh, then update plugin",
+      "cmd": "claude plugin marketplace update acme-marketplace && claude plugin update proof-engine@acme-marketplace",
+      "fixes": [{ "kind": "refresh-needed", "pluginRefKey": "proof-engine@acme-marketplace" }],
+      "doesNotFix": [],
+      "risk": "safe",
+      "requiresYes": false,
+      "requiresManualStep": false
+    }
+  ],
+  "exitCode": 2,
+  "logFile": "/Users/me/.claude-plugin-doctor/logs/cpd-2026-05-03T14-22-11.log"
+}

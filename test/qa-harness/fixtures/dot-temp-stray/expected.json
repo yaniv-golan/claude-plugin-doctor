@@ -1,0 +1,8 @@
+{
+  "cache --orphans": {
+    "exitCode": 0,
+    "exactStrayCount": 4,
+    "exactOrphanCount": 0,
+    "minTotalStrayBytes": 30000
+  }
+}
