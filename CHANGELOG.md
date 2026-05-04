@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- [`1c0e6af`](https://github.com/yaniv-golan/claude-plugin-doctor/commit/1c0e6af4cf70489834e30fc6af1a74ef19eafa8f) Thanks [@yaniv-golan](https://github.com/yaniv-golan)! - v0.2.0 — plugin-author dev loop. Adds `check`, `refresh`, `list`, `explain`,
+  `watch` subcommands. Layer 2 now detects the **version trap** (when an
+  installed plugin's `gitCommitSha` matches the recorded version but the
+  marketplace clone has advanced beyond that commit) and surfaces source-dir
+  content drift for `directory`-source marketplaces.
+
+  Breaking (no published v0.1 consumers): `ScanReport.schemaVersion` bumps
+  0.1 → 0.2; `InstalledPlugin` collapsed to `{ id, pluginName, marketplace,
+scopes[] }`; parsers now require the real-world JSON shapes only (single-Entry
+  and wrapped-marketplaces fallbacks removed).
+
+- [`1c0e6af`](https://github.com/yaniv-golan/claude-plugin-doctor/commit/1c0e6af4cf70489834e30fc6af1a74ef19eafa8f) Thanks [@yaniv-golan](https://github.com/yaniv-golan)! - Two-resolver model — Layer 2's reference rewritten with a 5-level CLI resolver
+  (plugin.json#version primary, marketplace.json#plugins[].version fallback) and
+  a separate Desktop UI resolver. New trap taxonomy (refresh-needed,
+  bump-needed, badge-only-needed) replaces the v0.2 "version trap A/B" jargon.
+  schemaVersion bumped 0.2 → 0.3 (breaking JSON consumers pinned to 0.2).
+  Object-form `source` shape now parsed (claude-plugins-official compat).
+
+- [`1c0e6af`](https://github.com/yaniv-golan/claude-plugin-doctor/commit/1c0e6af4cf70489834e30fc6af1a74ef19eafa8f) Thanks [@yaniv-golan](https://github.com/yaniv-golan)! - Source-aware resolver redesign + `cpd refresh --force-fetch` bypass for
+  Anthropic [#46081](https://github.com/yaniv-golan/claude-plugin-doctor/issues/46081). Layer 2's "two resolvers" v0.3/v0.4 framing replaced
+  with the corrected "one resolver, two read locations based on plugin
+  entry source kind" model. Schema bump 0.3 → 0.5 (breaking evidence
+  renames: cliVersion → resolvedVersion, desktopUiVersion →
+  marketplaceEntryVersion, marketplaceSourceKind → pluginEntrySourceKind).
+  New trap kinds: marketplace-update-broken, npm-source-not-supported,
+  unsupported-source. badge-only-needed narrowed to object-source only.
+
+### Patch Changes
+
+- [`1c0e6af`](https://github.com/yaniv-golan/claude-plugin-doctor/commit/1c0e6af4cf70489834e30fc6af1a74ef19eafa8f) Thanks [@yaniv-golan](https://github.com/yaniv-golan)! - Initial v0.1.0 release
+
+- [`1c0e6af`](https://github.com/yaniv-golan/claude-plugin-doctor/commit/1c0e6af4cf70489834e30fc6af1a74ef19eafa8f) Thanks [@yaniv-golan](https://github.com/yaniv-golan)! - Two real-machine bugfixes:
+
+  1. `cpd check <plugin>` exit code is now per-plugin, not system-wide rollup.
+  2. `rpm/manifest.json` parser accepts both object-keyed and array-of-entries
+     shapes (the array form is the real shape on Cowork ≥ 1.x; pre-fix this
+     crashed `cpd check --mode cowork` with E_USAGE).
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -22,7 +64,7 @@ independent cache layers of the Claude Code / Claude Desktop plugin system:
 6. Standalone Claude Code remote SSH content-hash sync
 
 The "remove + relaunch + re-add" workaround clears multiple layers at once.
-`cpd` finds *which* layer is actually stale and recommends the
+`cpd` finds _which_ layer is actually stale and recommends the
 minimum-impact fix.
 
 ### Subcommands
@@ -121,4 +163,4 @@ in the per-check output even though Layer 4 has no local cache to probe.
   both.
 - One module per cache layer under `src/caches/`. Cross-platform path
   resolution lives in `src/paths.ts`. Honors `CLAUDE_CONFIG_DIR`.
-</content>
+  </content>
