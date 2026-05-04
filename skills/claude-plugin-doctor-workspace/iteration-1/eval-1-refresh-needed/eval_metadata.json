@@ -1,0 +1,27 @@
+{
+  "eval_id": 1,
+  "eval_name": "refresh-needed",
+  "prompt": "My `proof-engine@acme-marketplace` plugin in Claude Desktop keeps loading the old 0.3.1 even though I know 0.4.0 is out. I ran `claude plugin update proof-engine@acme-marketplace` but it said 'already at latest version'. I went ahead and ran `cpd --json --no-progress --no-log-file` — its output is in `cpd-output.json`. Diagnose the problem and tell me the exact commands to fix it.",
+  "assertions": [
+    {
+      "name": "names refresh-needed or marketplace-clone-stale",
+      "description": "Output identifies the underlying drift kind (either by name or by plain-English description: marketplace clone is behind remote)."
+    },
+    {
+      "name": "recommends marketplace-update + plugin-update chain",
+      "description": "Output proposes both commands: `claude plugin marketplace update acme-marketplace` and `claude plugin update proof-engine@acme-marketplace`, in that order."
+    },
+    {
+      "name": "presents fix in plain English",
+      "description": "Output translates the JSON into natural language for the user. It does not present the recommendation as a raw JSON paste."
+    },
+    {
+      "name": "no spurious destructive-warning",
+      "description": "The action is safe; the response does not warn about destructive consequences or ask for explicit yes confirmation as if it were destructive."
+    },
+    {
+      "name": "no false-positive on other drift kinds",
+      "description": "Does not invent or attribute the failure to bump-needed, badge-only-needed, or marketplace-update-broken — the actual cause is refresh-needed."
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "cache --orphans": {
+    "exitCode": 0,
+    "exactOrphanCount": 0,
+    "exactStrayCount": 1,
+    "strayReason": "unknown-marketplace"
+  }
+}

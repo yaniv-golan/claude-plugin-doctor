@@ -1,0 +1,5 @@
+# Default reviewer for every change.
+*       @yaniv-golan
+
+# The agent/script CLI contract needs extra eyes — same person for now, but explicit.
+/docs/CLI-DESIGN.md      @yaniv-golan

@@ -1,0 +1,35 @@
+{
+  "expectations": [
+    {
+      "text": "names refresh-needed or marketplace-clone-stale",
+      "passed": true,
+      "evidence": "'marketplace clone is stale' header; '4 commits behind' explicitly stated."
+    },
+    {
+      "text": "recommends marketplace-update + plugin-update chain",
+      "passed": true,
+      "evidence": "'claude plugin marketplace update acme-marketplace && claude plugin update proof-engine@acme-marketplace' as the fix."
+    },
+    {
+      "text": "presents fix in plain English",
+      "passed": true,
+      "evidence": "Structured prose with headers and a table; no raw JSON paste."
+    },
+    {
+      "text": "no spurious destructive-warning",
+      "passed": true,
+      "evidence": "Calls it 'safe, single recommendation cpd produced'; no destructive warning."
+    },
+    {
+      "text": "no false-positive on other drift kinds",
+      "passed": true,
+      "evidence": "Explicitly identifies the single drift as refresh-needed; no confusion with bump-needed/badge-only/marketplace-update-broken."
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  }
+}

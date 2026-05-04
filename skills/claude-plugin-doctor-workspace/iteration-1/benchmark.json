@@ -1,0 +1,181 @@
+{
+  "metadata": {
+    "skill_name": "claude-plugin-doctor",
+    "skill_path": "<path/to/skill>",
+    "executor_model": "<model-name>",
+    "analyzer_model": "<model-name>",
+    "timestamp": "2026-05-03T16:11:35Z",
+    "evals_run": [1, 2, 3],
+    "runs_per_configuration": 1
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "run_number": 1,
+      "pass_rate": 1.0,
+      "passed": 5,
+      "failed": 0,
+      "total": 5,
+      "time_seconds": 26.507,
+      "tokens": 30434,
+      "tool_calls": 0,
+      "errors": 0,
+      "expectations": [
+        {
+          "text": "names refresh-needed or marketplace-clone-stale",
+          "passed": true,
+          "evidence": "'marketplace clone is stale' header; '4 commits behind' explicitly stated."
+        },
+        {
+          "text": "recommends marketplace-update + plugin-update chain",
+          "passed": true,
+          "evidence": "'claude plugin marketplace update acme-marketplace && claude plugin update proof-engine@acme-marketplace' as the fix."
+        },
+        {
+          "text": "presents fix in plain English",
+          "passed": true,
+          "evidence": "Structured prose with headers and a table; no raw JSON paste."
+        },
+        {
+          "text": "no spurious destructive-warning",
+          "passed": true,
+          "evidence": "Calls it 'safe, single recommendation cpd produced'; no destructive warning."
+        },
+        {
+          "text": "no false-positive on other drift kinds",
+          "passed": true,
+          "evidence": "Explicitly identifies the single drift as refresh-needed; no confusion with bump-needed/badge-only/marketplace-update-broken."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "run_number": 1,
+      "pass_rate": 1.0,
+      "passed": 5,
+      "failed": 0,
+      "total": 5,
+      "time_seconds": 28.612,
+      "tokens": 30472,
+      "tool_calls": 0,
+      "errors": 0,
+      "expectations": [
+        {
+          "text": "identifies the silent-cooldown / #46081 root cause",
+          "passed": true,
+          "evidence": "'a known Claude Code bug (Anthropic issue #46081). The CLI silently absorbs HTTP 304/429 responses during a fetch cooldown.'"
+        },
+        {
+          "text": "recommends cpd refresh --force-fetch --yes",
+          "passed": true,
+          "evidence": "'cpd refresh founder-skills --force-fetch --yes' verbatim."
+        },
+        {
+          "text": "surfaces destructive nature and asks for confirmation",
+          "passed": true,
+          "evidence": "'This is marked destructive' and offers `--dry-run` to preview before running. Treats the action as needing user judgment, though doesn't say 'I will run it for you, confirm?' as explicitly as the with-skill version."
+        },
+        {
+          "text": "mentions backup behavior",
+          "passed": true,
+          "evidence": "'after backing up .git/HEAD and the origin ref to .git/cpd-backups/'."
+        },
+        {
+          "text": "presents fix in plain English",
+          "passed": true,
+          "evidence": "Includes a layer-by-layer table and step-by-step follow-ups; clear prose, no raw JSON paste."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "run_number": 1,
+      "pass_rate": 1.0,
+      "passed": 5,
+      "failed": 0,
+      "total": 5,
+      "time_seconds": 20.428,
+      "tokens": 29991,
+      "tool_calls": 0,
+      "errors": 0,
+      "expectations": [
+        {
+          "text": "identifies bump-needed / plugin.json#version unchanged",
+          "passed": true,
+          "evidence": "'you haven't bumped `version` in `plugin.json`' + 'compares the version field' explanation."
+        },
+        {
+          "text": "presents numbered manual steps",
+          "passed": true,
+          "evidence": "Five numbered steps."
+        },
+        {
+          "text": "does not auto-execute version bump",
+          "passed": true,
+          "evidence": "Doesn't propose to auto-edit; presents the bump as something the user does."
+        },
+        {
+          "text": "presents fix in plain English",
+          "passed": true,
+          "evidence": "Clear prose with headers; no raw JSON paste."
+        },
+        {
+          "text": "no false-positive on refresh-needed",
+          "passed": true,
+          "evidence": "Explicitly states 'the marketplace clone is fully up to date (local HEAD deadbeef\u2026 matches the remote)' \u2014 rules out refresh-needed."
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 1.0,
+        "stddev": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 25.4257,
+        "stddev": 2.5104,
+        "min": 23.227,
+        "max": 28.161
+      },
+      "tokens": {
+        "mean": 35294.3333,
+        "stddev": 75.8705,
+        "min": 35207,
+        "max": 35344
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 1.0,
+        "stddev": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 25.1823,
+        "stddev": 4.2498,
+        "min": 20.428,
+        "max": 28.612
+      },
+      "tokens": {
+        "mean": 30299.0,
+        "stddev": 267.4117,
+        "min": 29991,
+        "max": 30472
+      }
+    },
+    "delta": {
+      "pass_rate": "+0.00",
+      "time_seconds": "+0.2",
+      "tokens": "+4995"
+    }
+  },
+  "notes": []
+}

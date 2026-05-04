@@ -1,0 +1,45 @@
+name: release
+
+# Disabled until repo settings are flipped (see CLAUDE.md "Pending repo
+# setup" section). To re-enable, restore `push: branches: [main]` here
+# AFTER the repo's "Allow GitHub Actions to create and approve pull
+# requests" setting is enabled and `NPM_TOKEN` is added as a secret.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'yaniv-golan/claude-plugin-doctor'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run check
+      - name: Create release PR or publish
+        uses: changesets/action@v1
+        with:
+          publish: npm run release
+          version: npx changeset version
+          commit: "chore: release"
+          title: "chore: release"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

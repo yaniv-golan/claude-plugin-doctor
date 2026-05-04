@@ -1,0 +1,27 @@
+{
+  "eval_id": 2,
+  "eval_name": "force-fetch",
+  "prompt": "I've been running `claude plugin marketplace update founder-skills` for over a week and it always succeeds, but my plugin still loads the old version (0.2.0). Github's clearly at a newer commit. I ran `cpd --json --no-progress --no-log-file` and its output is in `cpd-output.json`. Walk me through what's happening and what to do.",
+  "assertions": [
+    {
+      "name": "identifies the silent-cooldown / #46081 root cause",
+      "description": "Output explicitly identifies that the standard refresh is silently failing (HTTP 304/429/cooldown variant of Anthropic issue #46081 — naming the issue or the silent-failure mechanism counts)."
+    },
+    {
+      "name": "recommends cpd refresh --force-fetch --yes",
+      "description": "Output proposes `cpd refresh founder-skills --force-fetch --yes` (or equivalent — the marketplace name, --force-fetch, and --yes are all required for the recommendation to be actionable)."
+    },
+    {
+      "name": "surfaces destructive nature and asks for confirmation",
+      "description": "The response flags that --force-fetch writes to .git/ (or otherwise treats this as a destructive/manual-confirmation step), and asks the user to confirm BEFORE running rather than just running it."
+    },
+    {
+      "name": "mentions backup behavior",
+      "description": "Output reassures the user that --force-fetch backs up .git/HEAD and the origin ref before resetting (the safety property that justifies the destructive op)."
+    },
+    {
+      "name": "presents fix in plain English",
+      "description": "Output translates the JSON into natural language. Does not present the diagnosis as a raw JSON paste."
+    }
+  ]
+}
