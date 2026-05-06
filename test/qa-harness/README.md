@@ -8,7 +8,7 @@ A second, independent test tier that runs `cpd` end-to-end against synthetic Cla
 
 | Trigger | Tier | Includes | Where |
 |---|---|---|---|
-| every PR + push to `main` | fast | 14 fixtures + vitest invariants | `.github/workflows/qa-harness.yml` job `fast` |
+| every PR + push to `main` | fast | 17 fixtures + vitest invariants | `.github/workflows/qa-harness.yml` job `fast` |
 | weekly Sunday 06:00 UTC | full | adds `truly-massive` (1000 plugins × 50 marketplaces, ~4 min) | same workflow, job `full` |
 | `workflow_dispatch` with `mode=full` | full | as above, on demand | manual via the Actions tab |
 
@@ -25,7 +25,7 @@ Both scripts run `npm run build` first; the harness invokes the compiled `dist/c
 
 ```
 test/qa-harness/
-├── fixtures/                 # one directory per scenario (15 today)
+├── fixtures/                 # one directory per scenario (18 today)
 │   └── <name>/
 │       ├── setup.sh          # builds a synthetic $HOME tree
 │       └── expected.json     # per-command exit codes + assertions
@@ -37,7 +37,7 @@ test/qa-harness/
 │   └── _size.mjs             # shared size helper
 ├── diff/
 │   └── json-diff.mjs         # set-aware, tolerance-aware JSON differ
-└── invariants.test.ts        # vitest cross-command invariants (IT-1..IT-20)
+└── invariants.test.ts        # vitest cross-command invariants (IT-1..IT-22)
 ```
 
 The driver lives at `scripts/qa-harness.sh`. For every fixture × command × flag combination, it:
@@ -75,7 +75,9 @@ A violation prints `VIOLATION (<rule>): <detail>` on stderr and exits non-zero.
 - IT-11..IT-17 — prior-art baselines: `conditionId` shape, instance-id format, recipe presence, `runId` is a valid UUIDv4, timestamps are ISO-8601-Z. Hard-fail since v0.1.0 shipped these.
 - IT-18..IT-20 — `Drift.kind` union frozen, `ErrorEnvelope` well-formedness, `--no-network` suppression.
 
-If you change `src/refs.ts`, `src/types.ts`'s `Drift` union, the JSON envelope, or any condition/instance-id format, expect IT-11..IT-20 to fire — that's intentional, they exist to catch silent wire-format breakage.
+If you change `src/refs.ts`, `src/types.ts`'s `Drift` union, the JSON envelope, or any condition/instance-id format, expect IT-11..IT-22 to fire — that's intentional, they exist to catch silent wire-format breakage.
+
+IT-21 and IT-22 (added with the 2026-05-06 tranche) lock the new advisory-shape and `declaredIn`/`hasClone` invariants from the gist's revision 2026-05-06T11:45:05Z extraKnownMarketplaces integration. IT-21 enumerates the four valid `summary.advisories[].id` values and asserts the per-id `details` shape; IT-22 asserts that any marketplace with `declaredIn` set has a consistent `hasClone` (true iff `known_marketplaces` ∈ declaredIn).
 
 ## Fixture format
 

@@ -130,6 +130,17 @@ function maybeExplainHint(joinedSoFar: string, color: boolean): string | undefin
 
 /** Replace the user's home directory prefix with `~/...` for readability.
  *  No-op if the path doesn't start with home. JSON keeps full paths. */
+/** Replace inline UUIDs in an advisory message with their 8-char short form
+ *  (`<8>…`). Privacy: full UUIDs go to JSON only; humans see truncated forms
+ *  so a copy/paste into a bug report doesn't leak full session IDs.
+ *  Reviewer #4 refinement on Item 2's advisory message. */
+function truncateUuidsInMessage(msg: string): string {
+  return msg.replace(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+    (uuid) => `${uuid.slice(0, 8)}…`,
+  );
+}
+
 function tildify(p: string, home?: string): string {
   const h = home ?? process.env.HOME;
   if (h && p.startsWith(`${h}/`)) return `~${p.slice(h.length)}`;
@@ -469,6 +480,24 @@ export function renderHuman(report: ScanReport, opts: RenderOpts): string {
     lines.push("");
   } else if (drifts.length === 0) {
     lines.push(s.dim("No drift detected — everything is in sync."));
+    lines.push("");
+  }
+
+  // Advisories: render unconditionally (works for both drift and clean-scan
+  // outcomes). The advisory itself decides whether to fire; if `summary.
+  // advisories` is empty the loop is a no-op. Per reviewer #5: the previous
+  // implementation gated rendering on `drifts.length === 0`, but always-fire
+  // advisories like `session-plugins-disabled-detected` need to surface even
+  // when other drift exists. One unconditional block is cleaner than splitting
+  // emission paths.
+  const advisories = report.summary?.advisories ?? [];
+  if (advisories.length > 0) {
+    for (const a of advisories) {
+      // Truncate full session UUIDs in human render (privacy — full UUIDs
+      // remain in `--json` for programmatic consumers). Reviewer #4.
+      const truncated = truncateUuidsInMessage(a.message);
+      lines.push(s.dim(`  Note: ${truncated}`));
+    }
     lines.push("");
   }
 
@@ -1640,9 +1669,19 @@ export function renderHumanList(report: ListReport, opts: RenderOpts): string {
   lines.push(s.bold(`Marketplaces (${report.marketplaces.length})`));
   for (const m of report.marketplaces) {
     const tok = statusToken(m.layer1.status, c);
+    // Settings-only marketplaces (declared via extraKnownMarketplaces in
+    // settings sources but not materialized as a clone) get an explicit
+    // annotation so users understand why their layer1 status is "skipped".
+    // Reviewer #4 / #5 work; gist revision 2026-05-06T11:45:05Z.
+    const settingsOnlyLabel =
+      m.hasClone === false
+        ? `  ${s.dim(`(settings-only: ${(m.declaredIn ?? []).join(", ")})`)}`
+        : "";
     lines.push(
-      `  ${tok} ${m.name.padEnd(36)} ${s.dim(m.sourceType.padEnd(10))} ${m.sourceDetail}${
-        m.layer1.detail && m.layer1.status !== "fresh" ? `  ${s.dim(`(${m.layer1.detail})`)}` : ""
+      `  ${tok} ${m.name.padEnd(36)} ${s.dim(m.sourceType.padEnd(10))} ${m.sourceDetail}${settingsOnlyLabel}${
+        m.layer1.detail && m.layer1.status !== "fresh" && m.hasClone !== false
+          ? `  ${s.dim(`(${m.layer1.detail})`)}`
+          : ""
       }`,
     );
   }
@@ -1761,8 +1800,16 @@ export function renderHumanList(report: ListReport, opts: RenderOpts): string {
       }
       for (const skill of pair.skills) {
         const isBuiltIn = BUILTIN_SKILLS.has(skill.skillName);
-        const builtInLabel = isBuiltIn ? `  ${s.dim("(built-in)")}` : "";
-        lines.push(`  ${skill.skillName}${builtInLabel}`);
+        // isUserCreated is set by tier C (skills-plugin reader) and the v0.5
+        // list path, both of which consult the manifest. Annotation order:
+        // built-in wins over user-created in the (theoretically impossible)
+        // collision case — built-ins are reserved names.
+        const label = isBuiltIn
+          ? `  ${s.dim("(built-in)")}`
+          : skill.isUserCreated
+            ? `  ${s.dim("(user-created)")}`
+            : "";
+        lines.push(`  ${skill.skillName}${label}`);
       }
       lines.push("");
     }

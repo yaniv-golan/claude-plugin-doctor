@@ -18,10 +18,20 @@ import { type KnownMarketplace, parseKnownMarketplaces } from "../known-marketpl
 import { NotImplementedError, resolveUserDataDir } from "../paths.js";
 import type { CoworkRoot, KnownMarketplaceEntry } from "../types.js";
 import { pickMostRecentCoworkRoot } from "./active-root.js";
+import {
+  mergeMarketplaceDeclarations,
+  readCrossCuttingExtraKnownMarketplaces,
+  readExtraKnownMarketplacesFrom,
+} from "./extra-known-marketplaces.js";
+import { enumerateSessionConfigs } from "./session-configs.js";
 
 type SystemContext = {
   platform?: NodeJS.Platform;
   home?: string;
+  env?: Record<string, string | undefined>;
+  /** Used for `projectSettings` / `localSettings` resolution. Defaults to
+   *  `process.cwd()` when not injected; tests inject a tmp dir. */
+  cwd?: string;
 };
 
 /**
@@ -92,6 +102,13 @@ export function discoverCoworkRoots(ctx?: SystemContext): CoworkRoot[] {
 
   const sessionsDir = path.join(userDataDir, "local-agent-mode-sessions");
   if (!fs.existsSync(sessionsDir)) return [];
+
+  // Read cross-cutting extraKnownMarketplaces ONCE for the whole pass —
+  // userSettings, projectSettings, localSettings, policySettings all apply
+  // machine-globally (or cwd-relative for project/local) and the same set
+  // gets merged into every cowork root's marketplace inventory. See
+  // PLAN-2026-05-06-tranche-2.md "Per-root vs global merge semantics".
+  const crossCutting = readCrossCuttingExtraKnownMarketplaces(ctx ?? {});
 
   let accountDirs: string[];
   try {
@@ -169,10 +186,32 @@ export function discoverCoworkRoots(ctx?: SystemContext): CoworkRoot[] {
       }
 
       // Read known_marketplaces.json if present; empty array otherwise.
-      let marketplaces: KnownMarketplaceEntry[] = [];
+      let knownEntries: KnownMarketplaceEntry[] = [];
       if (hasCoworkPlugins) {
-        marketplaces = readMarketplaces(coworkPluginsDir);
+        knownEntries = readMarketplaces(coworkPluginsDir);
       }
+
+      // Read this cowork root's per-root coworkSettings.extraKnownMarketplaces
+      // (if cowork_settings.json exists). Per-root scope — does NOT apply to
+      // other cowork roots or to CCD.
+      const coworkExtras =
+        coworkSettingsPath !== undefined
+          ? readExtraKnownMarketplacesFrom(coworkSettingsPath, "coworkSettings")
+          : [];
+
+      // Merge: known_marketplaces.json + cross-cutting (machine-global +
+      // cwd-relative) + this root's coworkSettings. Cross-cutting is shared
+      // across roots; coworkExtras is per-root.
+      const marketplaces = mergeMarketplaceDeclarations(knownEntries, [
+        ...crossCutting,
+        ...coworkExtras,
+      ]);
+
+      // Per-session feature-gate sidecars (Item 2 — gist revision
+      // 2026-05-06T11:27:26Z §"Per-session feature gates"). Walk
+      // `<rootPath>/local_*.json` for sessions that have toggled
+      // pluginsEnabled / skillsEnabled away from their default-true.
+      const sessionEnum = enumerateSessionConfigs(rootPath);
 
       out.push({
         accountId,
@@ -188,6 +227,11 @@ export function discoverCoworkRoots(ctx?: SystemContext): CoworkRoot[] {
         ...(rpmManifestPath !== undefined ? { rpmManifestPath } : {}),
         ...(coworkSettingsPath !== undefined ? { coworkSettingsPath } : {}),
         ...(installedPluginsMtime !== undefined ? { installedPluginsMtime } : {}),
+        ...(sessionEnum.configs.length > 0 ? { sessionConfigs: sessionEnum.configs } : {}),
+        ...(sessionEnum.truncated ? { sessionConfigsTruncated: true } : {}),
+        ...(sessionEnum.totalScanned > 0
+          ? { sessionConfigsTotalScanned: sessionEnum.totalScanned }
+          : {}),
       });
     }
   }

@@ -2,8 +2,10 @@
  * Tier C — Layer 7: skills-plugin cache reader.
  *
  * Reads the `skills-plugin/<orgId>/<accountId>/` directory pair populated by
- * Anthropic's built-in skill sync (10-min sync timer). Returns one
- * `CacheSnapshot` per skill enumerated by tier A's `SkillsPluginPair`.
+ * Anthropic's built-in skill sync (default 10-min sync timer; Desktop
+ * `1.6259.1` reads a GrowthBook value named `skillsSyncIntervalMs` so the
+ * effective interval can be remotely configured). Returns one `CacheSnapshot`
+ * per skill enumerated by tier A's `SkillsPluginPair`.
  *
  * Subject note: skills-plugin snapshots use `subject: { kind: "skill", pair, skillName }`
  * rather than the `"rpm-plugin"` variant because skills don't have a
@@ -46,6 +48,35 @@ const DEFAULT_STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24h in ms
  *  regardless of disk state. */
 export const BUILTIN_SKILLS = new Set(["schedule", "setup-cowork", "consolidate-memory"]);
 
+/**
+ * Local-only user-created skills are renderer-owned via the `saveLocalSkill`
+ * IPC path's local-save branch (Desktop `1.6259.1`'s seven-handler
+ * local-skill IPC surface; gist revision 2026-05-06T11:27:26Z, §"Note on
+ * user-created local skills"). They live in the same
+ * `skills-plugin/<orgId>/<accountId>/skills/` tree as Anthropic-managed
+ * skills but are tagged `creatorType: "user"` AND `syncManaged: false` in
+ * the manifest, and the API-driven download/cleanup pass explicitly skips
+ * them. The silent-stale failure mode the trap targets cannot affect them.
+ *
+ * **Critical: conjunction, not disjunction.** The same `saveLocalSkill` IPC
+ * also has an upload branch that posts the skill to the backend `save_skill`
+ * API. Once uploaded, the skill re-enters the regular `list-skills` /
+ * `download-dot-skill-file` API path, which means it IS subject to the
+ * silent-stale failure. Uploaded user skills are presumed to retain
+ * `creatorType: "user"` but flip to `syncManaged: true` (or absent) once
+ * they re-enter the sync cycle — exempting on `creatorType === "user"`
+ * alone would over-exempt them.
+ *
+ * Predicate: `creatorType === "user"` AND **literal** `syncManaged === false`.
+ * The literal-false check defends against legacy Desktop versions that
+ * may write the manifest without `syncManaged` at all (treating absent as
+ * false would over-exempt API-downloaded skills on those installs).
+ */
+export function isUserCreatedManifestEntry(entry: Record<string, unknown> | undefined): boolean {
+  if (!entry) return false;
+  return entry.creatorType === "user" && entry.syncManaged === false;
+}
+
 // ── manifest schema (defensive, passthrough for forward-compat) ──────────────
 
 /**
@@ -78,6 +109,10 @@ type ParsedManifest = Record<
   string,
   { updatedAt?: string; lastUpdated?: string; lastUpdatedAt?: string; [k: string]: unknown }
 >;
+
+export function parseSkillsPluginManifest(manifestPath: string): ParsedManifest | undefined {
+  return parseManifest(manifestPath);
+}
 
 function parseManifest(manifestPath: string): ParsedManifest | undefined {
   let raw: unknown;
@@ -186,10 +221,12 @@ export function snapshotSkillsPluginPair(args: SkillsPluginCheckArgs): CacheSnap
 
     // Stuck-failure detection — exempt built-in skills (they're rewritten on
     // every sync from the in-bundle copy and cannot go stuck via the API-download
-    // path the detector targets).
+    // path the detector targets) and user-created local skills (renderer-owned,
+    // never go through the API download path; see isUserCreatedManifestEntry).
     const isBuiltIn = BUILTIN_SKILLS.has(skill.skillName);
+    const isUserCreated = isUserCreatedManifestEntry(manifestEntryRaw);
     let stuckFailureSignature = false;
-    if (!isBuiltIn && manifestUpdatedAt) {
+    if (!isBuiltIn && !isUserCreated && manifestUpdatedAt) {
       const manifestDateMs = new Date(manifestUpdatedAt).getTime();
       if (!Number.isNaN(manifestDateMs)) {
         const manifestIsRecent = now - manifestDateMs < recentWindowMs;
@@ -220,10 +257,14 @@ export function snapshotSkillsPluginPair(args: SkillsPluginCheckArgs): CacheSnap
       stuckFailureSignature,
     };
 
-    // Propagate isBuiltIn back to the topology skill entry so renderers and
-    // JSON output can annotate built-ins without re-checking the constant.
+    // Propagate isBuiltIn / isUserCreated back to the topology skill entry so
+    // renderers and JSON output can annotate them without re-checking the
+    // constant or re-parsing the manifest.
     if (isBuiltIn) {
       skill.isBuiltIn = true;
+    }
+    if (isUserCreated) {
+      skill.isUserCreated = true;
     }
 
     const snapshot: CacheSnapshot = {

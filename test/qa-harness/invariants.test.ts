@@ -578,6 +578,89 @@ for (const fixture of fixtures) {
       }
     });
 
+    // ─── IT-21: ScanReport.summary.advisories[] shape is well-formed ─────
+    // Tranche 2 added a discriminated union per `id` for ScanAdvisory.
+    // Every emitted advisory must carry a known id, an `info`/`warn`
+    // severity, and a non-empty message. Per-id `details` checks ensure
+    // the typed fields the gist-revision-2 readers populate are present
+    // when the advisory is emitted.
+    it("IT-21: every advisory has a known id + severity + non-empty message", () => {
+      const { json: s } = scan();
+      if (isErrorEnvelope(s)) return;
+      const advisories =
+        (s as { summary?: { advisories?: Array<Record<string, unknown>> } }).summary?.advisories ??
+        [];
+      const KNOWN_IDS = new Set([
+        "clean-scan-runtime-blind-spots",
+        "session-plugins-disabled-detected",
+        "session-skills-disabled-detected",
+        "session-config-enumeration-truncated",
+      ]);
+      for (const a of advisories) {
+        expect(KNOWN_IDS, `advisory id "${a.id}" not in known set`).toContain(a.id);
+        expect(["info", "warn"], `advisory id="${a.id}" has bad severity`).toContain(a.severity);
+        expect(typeof a.message, `advisory id="${a.id}" missing message`).toBe("string");
+        expect(
+          (a.message as string).length,
+          `advisory id="${a.id}" has empty message`,
+        ).toBeGreaterThan(0);
+        // Per-id details shape:
+        if (
+          a.id === "session-plugins-disabled-detected" ||
+          a.id === "session-skills-disabled-detected"
+        ) {
+          const d = a.details as Record<string, unknown> | undefined;
+          expect(d, `advisory id="${a.id}" missing details`).toBeDefined();
+          expect(typeof d?.totalScanned).toBe("number");
+          expect(typeof d?.sessionsWithFieldSet).toBe("number");
+          expect(typeof d?.disabledSessions).toBe("number");
+          expect(Array.isArray(d?.exampleSessionIds)).toBe(true);
+          expect(typeof d?.archivedDisabledCount).toBe("number");
+        }
+        if (a.id === "session-config-enumeration-truncated") {
+          const d = a.details as Record<string, unknown> | undefined;
+          expect(typeof d?.coworkRootPath).toBe("string");
+          expect(d?.capacity).toBe(2048);
+        }
+      }
+    });
+
+    // ─── IT-22: settings-only marketplaces carry hasClone=false ─────────
+    // Item 3 (extraKnownMarketplaces): every MarketplaceReport with
+    // declaredIn that does NOT include "known_marketplaces" must have
+    // hasClone === false (settings-only); conversely entries with
+    // declaredIn including "known_marketplaces" must have hasClone===true.
+    // Cpd violating this would fire stale `marketplace-update-broken`
+    // drift findings against settings-only declarations on every scan.
+    it("IT-22: marketplace declaredIn is consistent with hasClone", () => {
+      const r = runCpd(home, ["list"]);
+      const j = tryParse(r.stdout) as
+        | {
+            marketplaces?: Array<{
+              name: string;
+              declaredIn?: string[];
+              hasClone?: boolean;
+            }>;
+          }
+        | undefined;
+      if (!j || isErrorEnvelope(j as unknown)) return;
+      for (const mp of j.marketplaces ?? []) {
+        if (mp.declaredIn === undefined) continue; // legacy path, skip
+        const isKnown = mp.declaredIn.includes("known_marketplaces");
+        if (isKnown) {
+          expect(
+            mp.hasClone,
+            `marketplace "${mp.name}" declaredIn includes known_marketplaces but hasClone=${mp.hasClone}`,
+          ).toBe(true);
+        } else {
+          expect(
+            mp.hasClone,
+            `marketplace "${mp.name}" declaredIn=[${mp.declaredIn.join(",")}] (settings-only) but hasClone=${mp.hasClone}`,
+          ).toBe(false);
+        }
+      }
+    });
+
     // The `expected` block is read by every test that consults a
     // fixture-declared expectation (e.g., the corrupt-installed-plugins
     // current/desired selector). Reference it once so unused-var lint

@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.2.0] - 2026-05-06
+
+This release absorbs the 2026-05-06 validation pass against Claude Desktop `1.6259.1` and the gist's two follow-up revisions (`T11:27:26Z` and `T11:45:05Z`). The audit baseline behind these notes is in `docs/internal/VALIDATION-claude-desktop-code-2026-05-06.md`; the gist's current revision references standalone CLI `2.1.131` and the gist's own retest reports same observed behaviors at `2.1.131` as at the audited `2.1.129`.
+
+### Added
+
+- **`extraKnownMarketplaces` settings-layer integration.** cpd now reads marketplace declarations from five settings sources: `userSettings` (`$CLAUDE_CONFIG_DIR/settings.json`), `projectSettings` (`<cwd>/.claude/settings.json`), `localSettings` (`<cwd>/.claude/settings.local.json`), `coworkSettings` (per-cowork-root), and `policySettings` (`/Library/Application Support/ClaudeCode/managed-settings.json` + drop-ins under `managed-settings.d/*.json`). Settings-declared marketplaces appear in `cpd list` with a `(settings-only: <sources>)` annotation when no clone is materialized. Closes the visibility gap the upstream gist documented as *"diagnostic tools that walk only `known_marketplaces.json` will miss settings-declared marketplaces"*.
+- **`KnownMarketplaceEntry.declaredIn` and `KnownMarketplaceEntry.hasClone` fields** (additive, optional). `declaredIn` is a multi-source attribution array (`SettingsSource[]`); `hasClone` distinguishes settings-only declarations from materialized clones.
+- **`MarketplaceReport.declaredIn` and `MarketplaceReport.hasClone` fields** (additive, optional) on the v0.5 list-path report shape, mirroring the topology-level fields.
+- **New `SettingsSource` exported type** for the multi-source attribution union.
+- **Per-session feature-gate detection.** cpd now reads `<userData>/local-agent-mode-sessions/<acc>/<org>/local_<UUID>.json` sidecars and surfaces the `pluginsEnabled` / `skillsEnabled` gates that turn whole subsystems off at session start. New `CoworkRoot.sessionConfigs[]`, `CoworkRoot.sessionConfigsTruncated`, and `CoworkRoot.sessionConfigsTotalScanned` fields. New `SessionConfig` exported type. Capped at 2048 files per cowork root to avoid pathological enumeration cost.
+- **New `ScanAdvisory` ids and `summary.advisories[]` slot.** Advisories are surfaced as side notes when there are facts the user should know about that aren't drift findings:
+  - `clean-scan-runtime-blind-spots` (clean-scan only) — runtime flags cpd cannot observe (`--plugin-dir`/`--plugin-url`, `--bare`, `--channels`/`--dangerously-load-development-channels`).
+  - `session-plugins-disabled-detected` (always-fire) — ≥1 non-archived session has `pluginsEnabled: false`.
+  - `session-skills-disabled-detected` (always-fire) — same for `skillsEnabled: false`.
+  - `session-config-enumeration-truncated` (always-fire) — cowork root exceeded 2048-file cap.
+- **`SessionGateAdvisoryDetails` exported type** for structured access to affected session counts and IDs.
+- **`SkillsPluginSkill.isUserCreated` field.** Local-only user-created skills (`creatorType: "user"` AND `syncManaged: false` in the manifest) are now annotated `(user-created)` in `cpd list` and exempted from the `skills-plugin-stuck` trap, analogous to the existing built-in exemption.
+- **New `ActionRecipe` variant `claude_plugin_marketplace_add`** for materializing settings-only marketplaces. Carries `source` (URL/path) and optional `scope` (`user`/`project`/`local`). **Type-only addition this release** — no catalog entry currently emits this recipe; settings-only marketplaces produce zero drift findings and zero recommendations (defensibly so: a settings-side declaration is a *menu* the user opts into via `claude plugin marketplace add` when ready, not a stale state to auto-fix). The variant is in place so a future release can wire the emission without a schema change. See "Known gaps" below.
+- **Hermetic-test injection hooks.** New env var `CLAUDE_MANAGED_SETTINGS_DIR` overrides the macOS policy-settings root (`/Library/Application Support/ClaudeCode`) for tests and non-standard MDM deployments. The new readers also accept `cwd` injection in their `SystemContext` for `projectSettings`/`localSettings` resolution.
+
+### Changed
+
+- **`ScanAdvisory` is now a discriminated union** keyed by `id`, with typed `details` per advisory kind (was `{ id: string; severity; message }`). Consumers that read only `message` are unaffected; consumers that switch on `id` should add a default case to tolerate future ids. Wire-format additive within the existing `schemaVersion: "1.0"`.
+- **Renamed `summary.advisories[].id`**: `session-only-plugin-loads-invisible` → `clean-scan-runtime-blind-spots`. The advisory message has also broadened to cover three runtime-flag categories (`--plugin-dir`/`--plugin-url`, `--bare`, `--channels`/`--dangerously-load-development-channels`) instead of just the first. The original id was added in post-v0.1.0 work and was never in a tagged release. Consumers that branched on the old discriminator string need to update; consumers that read only `message` are unaffected.
+- **`skills-plugin-stuck` recommendation message** rewritten to reference the *effective* sync interval rather than a hard-coded 10 minutes. Desktop `1.6259.1` reads a GrowthBook value named `skillsSyncIntervalMs`, so the focus-handler interval is now remotely configurable. The recovery — quit and relaunch — is unchanged.
+- **Marketplace inventory in `cpd list` now includes settings-only declarations** with `layer1.status: "skipped"` and a `(settings-only: <sources>)` human-readable annotation. Previously these would have been silently absent from the report.
+- **Drift detection is `hasClone`-aware.** Settings-only marketplaces (no on-disk clone) are skipped in the upstream-probe loop, snapshot generation, and `marketplace-update-broken` / `refresh-needed` traps. Registration drift now compares declarations across roots (via the per-root `marketplaces[]` union of `declaredIn` sources), not clone presence — machine-global settings-source declarations correctly produce zero drift across all roots.
+
+### Fixed
+
+- **Friendly errors when a required positional argument is missing.** `cpd check`, `cpd refresh`, `cpd verify-in-ui`, and `cpd watch` previously produced Commander.js's generic one-liner (`error: missing required argument 'pluginAtMarketplace'`) when invoked without the positional. They now emit a multi-line message naming the argument, two example invocations, and a hint pointing at related commands (`cpd list` to find a plugin/marketplace, plain `cpd` for a whole-system scan). Exit code remains 64 (E_USAGE).
+- **Skills-plugin user-created skill exemption** now uses literal-false comparison on `syncManaged` (predicate is `creatorType === "user"` AND `syncManaged === false`, conjunction). The earlier disjunction would have over-exempted *uploaded* user skills, which re-enter the API download cycle via `saveLocalSkill`'s upload branch and ARE subject to the silent-stale failure.
+- **Marketplace-name safety filter applied to the new `extraKnownMarketplaces` reader.** Settings sources can carry attacker-controlled names (especially `.claude/settings.local.json` from a malicious project); the reader now rejects unsafe names with the same warn-level stderr message `parseKnownMarketplaces` uses.
+
+### Security
+
+- **`CLAUDE_MANAGED_SETTINGS_DIR` only governs reads.** cpd never writes to managed-settings paths; the new env var redirects reads only, preserving the read-only-by-default guarantee.
+
+### Known gaps
+
+- **Settings-only marketplaces produce no recommendations.** When a marketplace is declared via `extraKnownMarketplaces` in any settings source but no clone is materialized, `cpd list` shows the entry with the `(settings-only)` annotation, drift detection correctly skips it (no false `marketplace-update-broken` etc.), but no recommendation is emitted to materialize it. The `claude_plugin_marketplace_add` `ActionRecipe` variant exists in the type union but isn't wired to a catalog entry. Defensible because settings-side declarations represent an opt-in menu (especially `policySettings.extraKnownMarketplaces`), not stale state — but if real users report confusion ("how do I materialize this?"), wiring the emission is a small follow-up.
+- **QA harness fixtures don't assert "advisory must fire" or "recommendation must be present."** `expected.json` supports exit-code and orphan-count assertions only. New tranche-2 fixtures (`extra-marketplaces-user-settings`, `extra-marketplaces-policy-settings`, `session-gate-plugins-disabled`) verify the structural shape via the list/topology oracles + IT-21/IT-22 invariants but do not assert specific advisory ids or recipe kinds at the fixture level. A `requiresAdvisoryId` / `requiresRecommendation` field on `expected.json` would close this gap.
+
 ## [0.1.0] - 2026-05-03
 
 Initial public release.

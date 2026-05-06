@@ -40,6 +40,42 @@ program
   // required argument, unknown option) can exit 64 per HELP_EPILOG.
   .exitOverride();
 
+/**
+ * Validate that a positional argument was supplied. When missing, prints a
+ * friendly multi-line error to stderr (subcommand-specific examples + a
+ * hint pointing at related commands) and exits 64 (E_USAGE per the rest
+ * of cli.ts and HELP_EPILOG).
+ *
+ * The four commands that take a single positional arg (`check`,
+ * `verify-in-ui`, `watch` for `<pluginAtMarketplace>`; `refresh` for
+ * `<marketplaceName>`) all use this. Their Commander syntax declares the
+ * arg as **optional** (`[name]`) so Commander's own generic-error path
+ * doesn't fire — this helper produces the actual error.
+ *
+ * @param argName the placeholder name shown in the error (matches the
+ *   commander syntax, e.g. "pluginAtMarketplace" or "marketplaceName")
+ * @param value the positional arg as Commander parsed it (undefined when
+ *   the user didn't supply one)
+ * @param examples 2-3 invocation examples, without the leading "cpd "
+ * @param hint short pointer to a related command (e.g.
+ *   "Run `cpd list` to see installed plugins")
+ */
+function requireArg(
+  argName: string,
+  value: string | undefined,
+  examples: string[],
+  hint: string,
+): asserts value is string {
+  if (typeof value === "string" && value.length > 0) return;
+  const exLines = examples.map((e) => `    cpd ${e}`).join("\n");
+  process.stderr.write(
+    `cpd: error: missing required argument <${argName}>\n` +
+      `  Examples:\n${exLines}\n` +
+      `  ${hint}\n`,
+  );
+  process.exit(64);
+}
+
 // Shared options for any command that runs a scan.
 function addScanOptions(cmd: Command): Command {
   return cmd
@@ -101,15 +137,21 @@ addScanOptions(
 
 addScanOptions(
   program
-    .command("check <pluginAtMarketplace>")
+    .command("check [pluginAtMarketplace]")
     .description("Drift report for a single plugin across all six layers."),
-).action(async (id: string, opts: Record<string, unknown>) => {
+).action(async (id: string | undefined, opts: Record<string, unknown>) => {
+  requireArg(
+    "pluginAtMarketplace",
+    id,
+    ["check founder-skills@lool-founder-skills", "check pdf@anthropic-skills"],
+    "Run `cpd list` to see installed plugins, or plain `cpd` for a whole-system scan.",
+  );
   await runCheckCommand(id, opts);
 });
 
 addScanOptions(
   program
-    .command("refresh <marketplaceName>")
+    .command("refresh [marketplaceName]")
     .description("Run `claude plugin marketplace update <mp>` and show the before/after drift.")
     .option("--auto-update", "after refresh, also run `claude plugin update` for stale plugins")
     .option(
@@ -117,7 +159,13 @@ addScanOptions(
       "Bypass the (sometimes-broken) `claude plugin marketplace update` and run `git fetch && git reset --hard origin/<branch>` directly on the marketplace clone. Workaround for the silent-cooldown bug (Anthropic issue #46081). Requires --yes; backs up .git/HEAD and origin ref before resetting.",
     )
     .option("-y, --yes", "skip confirmation for destructive actions (required for --force-fetch)"),
-).action(async (mpName: string, opts: Record<string, unknown>) => {
+).action(async (mpName: string | undefined, opts: Record<string, unknown>) => {
+  requireArg(
+    "marketplaceName",
+    mpName,
+    ["refresh lool-founder-skills", "refresh anthropic --auto-update"],
+    "Run `cpd list` to see registered marketplace names.",
+  );
   await runRefreshCommand(mpName, opts);
 });
 
@@ -181,7 +229,7 @@ addScanOptions(
 });
 
 program
-  .command("verify-in-ui <pluginAtMarketplace>")
+  .command("verify-in-ui [pluginAtMarketplace]")
   .description(
     "Capture what Claude Desktop's Settings UI shows for a plugin and persist the evidence.",
   )
@@ -204,20 +252,35 @@ Example:
   .option("-q, --quiet", "suppress prompts (errors out unless --json with piped input)")
   .option("--log-file <path>", "override default log file location")
   .option("--no-log-file", "do not write a log file at all")
-  .action(async (id: string, opts: Record<string, unknown>) => {
+  .action(async (id: string | undefined, opts: Record<string, unknown>) => {
+    requireArg(
+      "pluginAtMarketplace",
+      id,
+      [
+        "verify-in-ui my-plugin@my-mp",
+        `echo '{"pluginListed":true}' | cpd verify-in-ui my-plugin@my-mp --json`,
+      ],
+      "Run `cpd list` to see installed plugins.",
+    );
     await runVerifyInUiCommand(id, opts);
   });
 
 addScanOptions(
   program
-    .command("watch <pluginAtMarketplace>")
+    .command("watch [pluginAtMarketplace]")
     .description("File-watch a plugin's source dir; re-check on each change.")
     .option(
       "--interval <ms>",
       "minimum ms between re-checks after a debounced burst of fs events",
       "500",
     ),
-).action(async (id: string, opts: Record<string, unknown>) => {
+).action(async (id: string | undefined, opts: Record<string, unknown>) => {
+  requireArg(
+    "pluginAtMarketplace",
+    id,
+    ["watch founder-skills@lool-founder-skills"],
+    "Run `cpd list` to see installed plugins. `watch` is intended for plugin authors editing a directory-source plugin.",
+  );
   await runWatchCommand(id, opts);
 });
 

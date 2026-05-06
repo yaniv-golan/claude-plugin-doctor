@@ -25,7 +25,12 @@ import {
 } from "../caches/install-snapshot.js";
 import { checkMarketplaceClone, snapshotMarketplaceClone } from "../caches/marketplace-clone.js";
 import { checkRpmCopy, snapshotRpmCopy } from "../caches/rpm-copy.js";
-import { BUILTIN_SKILLS, snapshotSkillsPluginPair } from "../caches/skills-plugin.js";
+import {
+  BUILTIN_SKILLS,
+  isUserCreatedManifestEntry,
+  parseSkillsPluginManifest,
+  snapshotSkillsPluginPair,
+} from "../caches/skills-plugin.js";
 import { pLimited } from "../concurrency.js";
 import { discoverTopology } from "../discovery/topology.js";
 import { composeDrift } from "../drift/compose.js";
@@ -193,6 +198,7 @@ function deriveScanSummary(
   rpmCaches: Record<string, import("../types.js").CacheSnapshot[]>,
   drifts: import("../types.js").Drift[],
   upstreams: Record<PluginRefKey | MarketplaceRefKey, import("../types.js").UpstreamProbeResult>,
+  topology?: import("../types.js").Topology,
 ): ScanSummary {
   // Upstream probe results determine whether a snapshot's freshness can be
   // verified. When `--no-network` blocks the probe (status "no-network") or
@@ -314,7 +320,192 @@ function deriveScanSummary(
     for (const snap of snaps) tallySnapshot(snap, `rpm:${rpmK}`, undefined);
   }
 
-  return { perLayer };
+  const advisoriesBuilder: import("../types.js").ScanAdvisory[] = [];
+
+  // Always-fire advisories: per-session feature gates. These describe state
+  // cpd CAN observe directly (the local_<UUID>.json sidecars), so they fire
+  // whenever observed — not gated on clean-scan. If a user is debugging a
+  // stale-plugin symptom and has pluginsEnabled=false on their active session,
+  // that's load-bearing context. Per gist revision 2026-05-06T11:27:26Z
+  // §"Per-session feature gates".
+  if (topology !== undefined) {
+    const sessionAdvisories = buildSessionGateAdvisories(topology);
+    for (const adv of sessionAdvisories) advisoriesBuilder.push(adv);
+  }
+
+  // Clean-scan advisories. Fire when no drifts were found, so the user
+  // doesn't read "everything is fresh" as ruling out staleness when they
+  // may have launched with one of several runtime flags that bypass on-disk
+  // state cpd walks. cpd cannot observe the parent `claude` process's argv,
+  // so this is emitted unconditionally on clean scans rather than
+  // conditionally.
+  //
+  // Sources:
+  //   - `--plugin-dir <path>` / `--plugin-url <url>`: session-only plugin
+  //     loads under the reserved `inline` marketplace name. No marketplace
+  //     clone, no installed_plugins.json entry, no enabled state.
+  //     Validation 2026-05-06: gist §"Standalone-CLI session-only plugin
+  //     entrypoints".
+  //   - `--bare`: sets CLAUDE_CODE_SIMPLE=1 and skips plugin sync, hooks,
+  //     LSP, attribution, auto-memory, background prefetches, keychain
+  //     reads, and CLAUDE.md auto-discovery. Skills still resolve via
+  //     /skill-name. Gist revision 2026-05-06T11:27:26Z.
+  //   - `--channels <servers...>` / `--dangerously-load-development-channels
+  //     <servers...>`: per-session MCP channel server registration. Lives
+  //     in settings + per-session CLI args, not in installed_plugins.json.
+  //     Gist revision 2026-05-06T11:45:05Z §"Runtime plugin channels".
+  if (drifts.length === 0) {
+    advisoriesBuilder.push({
+      id: "clean-scan-runtime-blind-spots",
+      severity: "info",
+      message:
+        "A clean scan checks on-disk state, not how Claude was launched. If your session uses any of these per-session flags, cpd cannot see them: " +
+        "(1) --plugin-dir <path> / --plugin-url <url> — session-only plugin loads (no marketplace clone, no installed_plugins.json entry); " +
+        "(2) --bare — skips plugin sync, hooks, LSP, attribution, auto-memory, background prefetches, keychain reads, CLAUDE.md auto-discovery (skills still resolve via /skill-name); " +
+        "(3) --channels <servers...> / --dangerously-load-development-channels <servers...> — per-session MCP channel server registration. " +
+        "If you're debugging stale-plugin symptoms with one of these flags in use, restart the session rather than running cpd refresh.",
+    });
+  }
+
+  return advisoriesBuilder.length > 0 ? { perLayer, advisories: advisoriesBuilder } : { perLayer };
+}
+
+/**
+ * Build session-gate advisories from topology. Walks every cowork root's
+ * sessionConfigs, separately tallies pluginsEnabled / skillsEnabled gate
+ * states, and emits one advisory per gate that has ≥1 disabled non-archived
+ * session. Also emits a `session-config-enumeration-truncated` advisory per
+ * cowork root that hit the 2048-file cap.
+ *
+ * Exported for unit tests. Production callers go through `deriveScanSummary`.
+ */
+export function buildSessionGateAdvisories(
+  topology: import("../types.js").Topology,
+): import("../types.js").ScanAdvisory[] {
+  const out: import("../types.js").ScanAdvisory[] = [];
+
+  // Per-gate accumulators (across all cowork roots).
+  type Acc = {
+    totalScanned: number;
+    sessionsWithFieldSet: number;
+    disabled: Array<{ sessionId: string | undefined; lastActivityAt: string | undefined }>;
+    archivedDisabledCount: number;
+  };
+  const pluginsAcc: Acc = {
+    totalScanned: 0,
+    sessionsWithFieldSet: 0,
+    disabled: [],
+    archivedDisabledCount: 0,
+  };
+  const skillsAcc: Acc = {
+    totalScanned: 0,
+    sessionsWithFieldSet: 0,
+    disabled: [],
+    archivedDisabledCount: 0,
+  };
+
+  for (const cwRoot of topology.cowork) {
+    if (cwRoot.sessionConfigsTruncated === true) {
+      out.push({
+        id: "session-config-enumeration-truncated",
+        severity: "info",
+        message: `cpd enumerated 2048 of ${cwRoot.sessionConfigsTotalScanned ?? "many"} session config files in cowork root ${cwRoot.rootPath}; remaining files were skipped. If you have stale-plugin symptoms tied to a specific older session, the cap may have hidden the relevant pluginsEnabled/skillsEnabled gate.`,
+        details: { coworkRootPath: cwRoot.rootPath, capacity: 2048 },
+      });
+    }
+    const configs = cwRoot.sessionConfigs ?? [];
+    pluginsAcc.totalScanned += configs.length;
+    skillsAcc.totalScanned += configs.length;
+    for (const cfg of configs) {
+      if (cfg.pluginsEnabled !== undefined) {
+        pluginsAcc.sessionsWithFieldSet++;
+        if (cfg.pluginsEnabled === false) {
+          if (cfg.isArchived === true) {
+            pluginsAcc.archivedDisabledCount++;
+          } else {
+            pluginsAcc.disabled.push({
+              sessionId: cfg.sessionId,
+              lastActivityAt: cfg.lastActivityAt,
+            });
+          }
+        }
+      }
+      if (cfg.skillsEnabled !== undefined) {
+        skillsAcc.sessionsWithFieldSet++;
+        if (cfg.skillsEnabled === false) {
+          if (cfg.isArchived === true) {
+            skillsAcc.archivedDisabledCount++;
+          } else {
+            skillsAcc.disabled.push({
+              sessionId: cfg.sessionId,
+              lastActivityAt: cfg.lastActivityAt,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const exampleIdsFor = (acc: Acc): string[] => {
+    // Sort already happened at enumeration; resort here to merge across
+    // cowork roots and ensure the top-3-most-recent are picked globally.
+    const sorted = [...acc.disabled].sort((a, b) => {
+      const aT = a.lastActivityAt ?? "";
+      const bT = b.lastActivityAt ?? "";
+      if (!aT && !bT) return 0;
+      if (!aT) return 1;
+      if (!bT) return -1;
+      return bT.localeCompare(aT);
+    });
+    return sorted
+      .slice(0, 3)
+      .map((s) => s.sessionId ?? "(unknown sessionId)")
+      .filter((s) => s !== "");
+  };
+
+  if (pluginsAcc.disabled.length > 0) {
+    const ids = exampleIdsFor(pluginsAcc);
+    const denom = pluginsAcc.sessionsWithFieldSet;
+    const moreSuffix =
+      pluginsAcc.disabled.length > ids.length
+        ? ` (+${pluginsAcc.disabled.length - ids.length} more)`
+        : "";
+    out.push({
+      id: "session-plugins-disabled-detected",
+      severity: "info",
+      message: `${pluginsAcc.disabled.length} of ${denom} session(s) where the field is set have pluginsEnabled=false (out of ${pluginsAcc.totalScanned} total scanned; sessions without the field default to enabled). Affected: ${ids.join(", ")}${moreSuffix}. If a plugin is on disk and enabled but the running session isn't using it, this is a likely cause.`,
+      details: {
+        totalScanned: pluginsAcc.totalScanned,
+        sessionsWithFieldSet: pluginsAcc.sessionsWithFieldSet,
+        disabledSessions: pluginsAcc.disabled.length,
+        exampleSessionIds: ids,
+        archivedDisabledCount: pluginsAcc.archivedDisabledCount,
+      },
+    });
+  }
+
+  if (skillsAcc.disabled.length > 0) {
+    const ids = exampleIdsFor(skillsAcc);
+    const denom = skillsAcc.sessionsWithFieldSet;
+    const moreSuffix =
+      skillsAcc.disabled.length > ids.length
+        ? ` (+${skillsAcc.disabled.length - ids.length} more)`
+        : "";
+    out.push({
+      id: "session-skills-disabled-detected",
+      severity: "info",
+      message: `${skillsAcc.disabled.length} of ${denom} session(s) where the field is set have skillsEnabled=false (out of ${skillsAcc.totalScanned} total scanned; sessions without the field default to enabled). Affected: ${ids.join(", ")}${moreSuffix}. The session manager logs '[LocalAgentModeSessionManager] skillsEnabled=false — skipping list_skills/save_skill/propose_skills' as the canary.`,
+      details: {
+        totalScanned: skillsAcc.totalScanned,
+        sessionsWithFieldSet: skillsAcc.sessionsWithFieldSet,
+        disabledSessions: skillsAcc.disabled.length,
+        exampleSessionIds: ids,
+        archivedDisabledCount: skillsAcc.archivedDisabledCount,
+      },
+    });
+  }
+
+  return out;
 }
 
 // ── v1.0 ScanReport builder ──────────────────────────────────────────────────
@@ -326,6 +517,14 @@ function deriveScanSummary(
 async function runRootPipeline(opts: {
   activePluginsRoot: string;
   activeRootRef: import("../types.js").RootRef;
+  /** Pre-merged marketplaces from the topology pass (known_marketplaces.json
+   *  + extraKnownMarketplaces from settings sources). When provided, the
+   *  pipeline iterates this list instead of re-reading
+   *  known_marketplaces.json directly. Settings-only entries (those with
+   *  `hasClone === false`) are filtered out before the upstream-probe
+   *  loop — they don't have a clone to compare against and shouldn't fire
+   *  `git ls-remote` on every scan. */
+  mergedMarketplaces?: import("../types.js").KnownMarketplaceEntry[];
   allCoworkRoots: CoworkRootInfo[];
   activeCw: CoworkRootInfo | undefined;
   noNetwork: boolean;
@@ -360,10 +559,46 @@ async function runRootPipeline(opts: {
   // Determine mode from the rootRef (used for cowork_mirror snapshots).
   const isCoworkRoot = activeRootRef.kind === "cowork";
 
-  const knownMps = parseKnownMarketplaces(path.join(activePluginsRoot, "known_marketplaces.json"));
+  // Marketplace inventory: prefer the pre-merged list from the topology pass
+  // when caller provided one (it includes extraKnownMarketplaces declarations
+  // from settings sources). Settings-only entries (`hasClone === false`) are
+  // filtered out before the per-root pipeline runs — they don't have a clone
+  // to compare against, and probing/snapshotting them would fire spurious
+  // `git ls-remote` calls and produce false `missing` drift findings. They
+  // still appear in `topology.ccd.marketplaces` (or the cowork root's
+  // `marketplaces`) for `cpd list` consumption. Reviewer #4 expansion.
+  // Fallback: callers that haven't been migrated to the merged shape get the
+  // legacy direct parseKnownMarketplaces read (no settings sources merged).
+  let settingsOnlyCount = 0;
+  const knownMps = opts.mergedMarketplaces
+    ? {
+        marketplaces: opts.mergedMarketplaces
+          .filter((e) => {
+            // Treat undefined as true (entries that haven't been merge-tagged
+            // are assumed to have clones; matches the legacy code path).
+            const hasClone = e.hasClone !== false;
+            if (!hasClone) settingsOnlyCount++;
+            return hasClone;
+          })
+          .map((e) => {
+            // Reconstruct the legacy KnownMarketplace shape from KnownMarketplaceEntry.
+            // `source.raw` carries the full original source object with all
+            // fields (`repo`, `url`, etc.); spread it so downstream code that
+            // reads those fields keeps working.
+            const sourceRaw = (e.source.raw ?? {}) as Record<string, unknown>;
+            const source = { source: e.source.kind, ...sourceRaw };
+            return {
+              name: e.name,
+              source: source as { source: string } & Record<string, unknown>,
+              raw: e.raw,
+            };
+          }),
+      }
+    : parseKnownMarketplaces(path.join(activePluginsRoot, "known_marketplaces.json"));
   logger.debug("known_marketplaces_parsed", {
     root: activeRootRef.kind,
     count: knownMps.marketplaces.length,
+    settingsOnlySkipped: settingsOnlyCount,
   });
 
   const installed = parseInstalledPlugins(path.join(activePluginsRoot, "installed_plugins.json"));
@@ -805,6 +1040,10 @@ export async function runScan(opts: RunScanOpts): Promise<ScanReport> {
       const result = await runRootPipeline({
         activePluginsRoot: topology.ccd.pluginsRoot,
         activeRootRef,
+        // Pass the topology's pre-merged marketplace inventory (includes
+        // extraKnownMarketplaces from settings sources). The pipeline
+        // filters out hasClone === false entries before probing.
+        mergedMarketplaces: topology.ccd.marketplaces,
         allCoworkRoots,
         activeCw: undefined,
         noNetwork: opts.noNetwork,
@@ -832,6 +1071,10 @@ export async function runScan(opts: RunScanOpts): Promise<ScanReport> {
       const result = await runRootPipeline({
         activePluginsRoot: path.join(cwRoot.rootPath, "cowork_plugins"),
         activeRootRef,
+        // Each cowork root carries its own merged marketplace inventory
+        // (own known_marketplaces.json + cross-cutting settings + own
+        // coworkSettings).
+        mergedMarketplaces: cwRoot.marketplaces,
         allCoworkRoots,
         activeCw: cwInfo,
         noNetwork: opts.noNetwork,
@@ -1038,7 +1281,14 @@ export async function runScan(opts: RunScanOpts): Promise<ScanReport> {
   progress.emitDone(totalMs, exitCode, summary);
 
   const logFile = logger.getFilePath();
-  const scanSummary = deriveScanSummary(caches, marketplaceCaches, rpmCaches, drifts, upstreams);
+  const scanSummary = deriveScanSummary(
+    caches,
+    marketplaceCaches,
+    rpmCaches,
+    drifts,
+    upstreams,
+    topology,
+  );
   return {
     schemaVersion: "1.0",
     runId: logger.getRunId(),
@@ -1164,14 +1414,21 @@ export async function runV05Scan(opts: RunScanOpts): Promise<V05ScanResult> {
     env: opts.env,
   });
 
-  // Bug 3 fix: populate isBuiltIn on topology skills so JSON output carries
-  // correct values. snapshotSkillsPluginPair (the only caller that sets
-  // skill.isBuiltIn) is NOT called in the v0.5 path, leaving it undefined/null.
-  // Inline the same BUILTIN_SKILLS.has() logic here so JSON output is correct.
+  // Bug 3 fix: populate isBuiltIn / isUserCreated on topology skills so JSON
+  // output carries correct values. snapshotSkillsPluginPair (the only caller
+  // that sets these in tier C) is NOT called in the v0.5 list path, leaving
+  // them undefined/null. Inline the same logic here so JSON output is correct.
+  // For isUserCreated we have to consult the manifest (creatorType/syncManaged
+  // fields), so parse it once per pair.
   if (topology.skillsPlugin) {
     for (const pair of topology.skillsPlugin.pairs) {
+      const manifest = pair.manifestPath ? parseSkillsPluginManifest(pair.manifestPath) : undefined;
       for (const skill of pair.skills) {
         skill.isBuiltIn = BUILTIN_SKILLS.has(skill.skillName);
+        const entry = manifest?.[skill.skillName] as Record<string, unknown> | undefined;
+        if (isUserCreatedManifestEntry(entry)) {
+          skill.isUserCreated = true;
+        }
       }
     }
   }
@@ -1268,16 +1525,80 @@ export async function runV05Scan(opts: RunScanOpts): Promise<V05ScanResult> {
         status: layer1.status,
         durationMs: probeDuration,
       });
+      // Carry declaredIn / hasClone forward when the merged-topology shape
+      // has them. Marketplaces that came through `parseKnownMarketplaces`
+      // alone (the v0.5 default path) get `declaredIn: ["known_marketplaces"]`
+      // and `hasClone: true` synthesized here so consumers can rely on the
+      // fields' presence regardless of which scan path produced the report.
+      const mergedEntry =
+        mode === "ccd"
+          ? topology.ccd?.marketplaces.find((e) => e.name === mp.name)
+          : topology.cowork
+              .find(
+                (c) => activeCw && c.accountId === activeCw.accountId && c.orgId === activeCw.orgId,
+              )
+              ?.marketplaces.find((e) => e.name === mp.name);
+      const declaredIn = mergedEntry?.declaredIn ?? ["known_marketplaces"];
+      const hasClone = mergedEntry?.hasClone ?? true;
       marketplaces[idx] = {
         name: mp.name,
         sourceType,
         sourceDetail,
         layer1,
         integrityIssues: integrityCheck(activePluginsRoot, mp.name),
+        declaredIn,
+        hasClone,
       };
     }),
   );
   phaseEnd("check_marketplaces", t);
+
+  // Append settings-only marketplaces (declared via extraKnownMarketplaces in
+  // settings sources but not in known_marketplaces.json). They have no clone
+  // to compare against, so `layer1.status` is "skipped". They still appear
+  // in `cpd list`'s marketplace section (with a `(settings-only)` annotation
+  // in the human renderer) and in JSON output via `declaredIn`. Reviewer #4
+  // expansion: "diagnostic tools that walk only known_marketplaces.json
+  // will miss settings-declared marketplaces" — this closes that gap on the
+  // v0.5 list path.
+  const knownNames = new Set(knownMps.marketplaces.map((m) => m.name));
+  const activeRootMerged =
+    mode === "ccd"
+      ? (topology.ccd?.marketplaces ?? [])
+      : (topology.cowork.find(
+          (c) => activeCw && c.accountId === activeCw.accountId && c.orgId === activeCw.orgId,
+        )?.marketplaces ?? []);
+  for (const merged of activeRootMerged) {
+    if (knownNames.has(merged.name)) continue;
+    if (merged.hasClone !== false) continue; // safety: only append settings-only
+    const mergedSourceKind = merged.source.kind;
+    const sourceType =
+      mergedSourceKind === "github" ||
+      mergedSourceKind === "git" ||
+      mergedSourceKind === "directory" ||
+      mergedSourceKind === "remote"
+        ? mergedSourceKind
+        : "unknown";
+    const sourceDetail = formatSourceDetail({
+      source: mergedSourceKind,
+      ...((merged.source.raw as Record<string, unknown>) ?? {}),
+    });
+    marketplaces.push({
+      name: merged.name,
+      sourceType,
+      sourceDetail,
+      layer1: {
+        plugin: "",
+        layer: "marketplace_clone",
+        status: "skipped",
+        detail: `Marketplace declared via settings (${(merged.declaredIn ?? []).join(", ")}) but no on-disk clone.`,
+        evidence: { settingsOnly: true, declaredIn: merged.declaredIn ?? [] },
+      },
+      integrityIssues: [],
+      declaredIn: merged.declaredIn ?? [],
+      hasClone: false,
+    });
+  }
 
   // Bug 4 fix: when mode is cowork, also load CCD's known_marketplaces.json
   // so the renderer can look up source URLs for CCD aliases (e.g. for the

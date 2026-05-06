@@ -36,6 +36,24 @@ export function detectRegistrationDrift(topology: Topology): RegistrationDrift[]
   if (allRoots.length === 0) return [];
 
   // Build a map: marketplace name → set of root refs that have it.
+  //
+  // "Has it" means **declared in this root's `marketplaces[]`** — the union
+  // of `known_marketplaces.json` entries and `extraKnownMarketplaces`
+  // declarations from all applicable settings sources, populated by tier-A
+  // discovery (see src/discovery/extra-known-marketplaces.ts and reviewer #5
+  // in PLAN-2026-05-06-tranche-2.md). Machine-global settings sources
+  // (userSettings, policySettings) get merged into EVERY root, so a
+  // marketplace declared only in those will appear in every root's
+  // `marketplaces[]` and correctly produce zero registration drift. A
+  // marketplace declared only in CCD's `known_marketplaces.json` (or only
+  // in one cowork root's per-root `coworkSettings`) will correctly fire
+  // drift for the absent roots.
+  //
+  // Presence is independent of `hasClone` — a settings-only declaration
+  // (no materialized clone) still counts as "registered" for cross-root
+  // comparison purposes. The clone-presence dimension is handled by other
+  // drift kinds (marketplace-update-broken, refresh-needed) that consult
+  // `KnownMarketplaceEntry.hasClone`.
   const mpPresence = new Map<string, RootRef[]>();
 
   if (topology.ccd !== undefined) {

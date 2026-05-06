@@ -396,6 +396,139 @@ describe("5.2 BUILTIN_SKILLS stuckFailureSignature exemption", () => {
   });
 });
 
+// ── 5.2b: local-only user-created skill exemption (validation 2026-05-06) ────
+//
+// Per the gist's revised §"Note on user-created local skills" (revision
+// 2026-05-06T11:27:26Z), only LOCAL-ONLY user-created skills are immune to
+// the silent-stale bug — these are tagged `creatorType: "user"` AND
+// `syncManaged: false` in the manifest, written by `saveLocalSkill`'s
+// local-save branch.
+//
+// **Uploaded user skills DO re-enter the download cycle**: once
+// `saveLocalSkill`'s upload branch posts to the backend `save_skill` API,
+// the skill returns through the regular `list-skills` /
+// `download-dot-skill-file` path and is subject to the same silent-stale
+// failure as Anthropic-managed `pdf` / `xlsx` etc. They presumably retain
+// `creatorType: "user"` but flip `syncManaged` to `true` (or absent) — so
+// the exemption MUST require the conjunction, not just `creatorType === "user"`.
+//
+// Critical edge cases verified below:
+//   - both fields together → exempt
+//   - either field alone → NOT exempt (defensive — prevents over-exempting
+//     uploaded user skills which carry creatorType:"user" but not
+//     syncManaged:false)
+//   - syncManaged absent (legacy Desktop) → NOT exempt
+
+describe("5.2b local-only user-created skill stuckFailureSignature exemption", () => {
+  let tmp: string;
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cpd-rc4-usercreated-"));
+  });
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  /** Build a stuck-shaped skill pair (manifest claims a recent update, on-disk
+   *  skill dir is old and SKILL.md missing) with the manifest entry shape
+   *  controlled by `manifestEntryExtras`. The skill is named "my-custom-skill"
+   *  so it cannot collide with BUILTIN_SKILLS. */
+  function makeStuckShapedPair(
+    rootPath: string,
+    manifestEntryExtras: Record<string, unknown>,
+  ): SkillsPluginPair {
+    const skillName = "my-custom-skill";
+    const skillDir = path.join(rootPath, "skills", skillName);
+    fs.mkdirSync(skillDir, { recursive: true });
+    // No SKILL.md → matches the stuck-failure shape on its own.
+    const manifestPath = path.join(rootPath, "manifest.json");
+    writeJson(manifestPath, {
+      [skillName]: {
+        updatedAt: new Date().toISOString(),
+        ...manifestEntryExtras,
+      },
+    });
+    return {
+      orgId: "org1",
+      accountId: "acc1",
+      rootPath,
+      manifestPath,
+      skills: [
+        {
+          skillName,
+          dirPath: skillDir,
+          hasSkillMd: false,
+          dirMtime: Date.now() - 48 * 60 * 60 * 1000,
+        },
+      ],
+    };
+  }
+
+  it("creatorType: 'user' AND syncManaged: false (local-only) EXEMPTS the skill", () => {
+    const pair = makeStuckShapedPair(tmp, { creatorType: "user", syncManaged: false });
+    const snaps = snapshotSkillsPluginPair({ pair, skillsPluginRootPath: tmp });
+    expect(snaps).toHaveLength(1);
+    expect((snaps[0]?.data as { stuckFailureSignature: boolean }).stuckFailureSignature).toBe(
+      false,
+    );
+    // Topology side: isUserCreated must be set so renderers / JSON output
+    // can annotate the skill as `(user-created)`.
+    expect(pair.skills[0]?.isUserCreated).toBe(true);
+  });
+
+  it("creatorType: 'user' ALONE does NOT exempt (presumed uploaded user skill)", () => {
+    // Once a user-created skill is uploaded via `saveLocalSkill`'s upload
+    // branch, it re-enters the API download cycle and IS subject to the
+    // silent-stale bug. Such skills are presumed to retain
+    // `creatorType: "user"` but flip `syncManaged` to `true` (or absent).
+    // Exempting on `creatorType` alone would over-exempt them.
+    const pair = makeStuckShapedPair(tmp, { creatorType: "user" });
+    const snaps = snapshotSkillsPluginPair({ pair, skillsPluginRootPath: tmp });
+    expect(snaps).toHaveLength(1);
+    expect((snaps[0]?.data as { stuckFailureSignature: boolean }).stuckFailureSignature).toBe(true);
+    expect(pair.skills[0]?.isUserCreated).toBeUndefined();
+  });
+
+  it("creatorType: 'user' WITH syncManaged: true does NOT exempt (uploaded user skill)", () => {
+    // Explicit case: an uploaded user skill that has re-entered the sync
+    // cycle. This is the exact failure mode the new gist text calls out.
+    const pair = makeStuckShapedPair(tmp, { creatorType: "user", syncManaged: true });
+    const snaps = snapshotSkillsPluginPair({ pair, skillsPluginRootPath: tmp });
+    expect(snaps).toHaveLength(1);
+    expect((snaps[0]?.data as { stuckFailureSignature: boolean }).stuckFailureSignature).toBe(true);
+    expect(pair.skills[0]?.isUserCreated).toBeUndefined();
+  });
+
+  it("syncManaged: false ALONE does NOT exempt (defensive — unknown shape)", () => {
+    // The gist documents `syncManaged: false` only in conjunction with
+    // `creatorType: "user"`. A skill with `syncManaged: false` but no
+    // `creatorType` is an unknown manifest shape; don't infer immunity.
+    const pair = makeStuckShapedPair(tmp, { syncManaged: false });
+    const snaps = snapshotSkillsPluginPair({ pair, skillsPluginRootPath: tmp });
+    expect(snaps).toHaveLength(1);
+    expect((snaps[0]?.data as { stuckFailureSignature: boolean }).stuckFailureSignature).toBe(true);
+    expect(pair.skills[0]?.isUserCreated).toBeUndefined();
+  });
+
+  it("ABSENT syncManaged does NOT exempt the skill (legacy Desktop)", () => {
+    // Critical regression: pre-1.6259.1 Desktop versions don't write
+    // `syncManaged`. Treating absent as false would over-exempt every
+    // legacy API-downloaded skill and silence the trap entirely.
+    const pair = makeStuckShapedPair(tmp, {});
+    const snaps = snapshotSkillsPluginPair({ pair, skillsPluginRootPath: tmp });
+    expect(snaps).toHaveLength(1);
+    expect((snaps[0]?.data as { stuckFailureSignature: boolean }).stuckFailureSignature).toBe(true);
+    expect(pair.skills[0]?.isUserCreated).toBeUndefined();
+  });
+
+  it("syncManaged: true does NOT exempt the skill", () => {
+    const pair = makeStuckShapedPair(tmp, { syncManaged: true });
+    const snaps = snapshotSkillsPluginPair({ pair, skillsPluginRootPath: tmp });
+    expect(snaps).toHaveLength(1);
+    expect((snaps[0]?.data as { stuckFailureSignature: boolean }).stuckFailureSignature).toBe(true);
+    expect(pair.skills[0]?.isUserCreated).toBeUndefined();
+  });
+});
+
 // ── 5.3: skills-plugin-stuck recommendation text update ──────────────────────
 
 describe("5.3 skills-plugin-stuck recommendation text", () => {
@@ -416,7 +549,14 @@ describe("5.3 skills-plugin-stuck recommendation text", () => {
     expect(action).not.toBeNull();
     expect(action?.description).not.toContain("focus Desktop");
     expect(action?.description).toMatch(/quit.*relaunch|relaunch.*quit/i);
-    expect(action?.description).toMatch(/>10 min|>10min|10 min ago/i);
+    // Description must reference the effective sync interval. Validation
+    // 2026-05-06 surfaced that Desktop reads `skillsSyncIntervalMs` from
+    // GrowthBook so the interval is no longer a hard-coded 10 min — match
+    // either the legacy ">10 min" wording or the new GrowthBook-aware
+    // wording, with a strong preference for the latter going forward.
+    expect(action?.description).toMatch(
+      /skillsSyncIntervalMs|effective sync interval|>10 min|10 min ago/i,
+    );
   });
 });
 

@@ -301,7 +301,7 @@ function buildActionForDrift(d: Drift, ordinal: number): ActionTemplate | undefi
         id: `action:skills-plugin-stuck:${rootRefKey(d.subject.ref)}:${d.skill}`,
         ordinal,
         description:
-          "Remove the stale skill, then quit and relaunch Claude Desktop. (Focusing Desktop is NOT a reliable trigger — the focus handler only fires sync if the last poll was >10 min ago. Quit+relaunch always works.)",
+          "Remove the stale skill, then quit and relaunch Claude Desktop. (Focusing Desktop is NOT a reliable trigger — the focus handler only fires sync if the last poll was older than the effective sync interval, which defaults to 10 min but can be GrowthBook-configured via skillsSyncIntervalMs. Quit+relaunch always works.)",
         fixes: [fixRef],
         doesNotFix: [],
         postActionAdvisory: "ui-restart-required",

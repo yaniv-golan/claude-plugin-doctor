@@ -51,7 +51,22 @@ if [ "$expected_ids" != "$actual_ids" ]; then
 fi
 
 # L-2: marketplaces[].name set == UNION of known_marketplaces.json keys
-#      across CCD AND every cowork root.
+#      across CCD AND every cowork root, PLUS extraKnownMarketplaces keys
+#      from every settings source the CLI reads (gist revision
+#      2026-05-06T11:45:05Z §"`known_marketplaces.json` is not the whole
+#      declaration story"). Settings sources read by cpd:
+#        - userSettings:    $HOME/.claude/settings.json
+#        - projectSettings: $cwd/.claude/settings.json
+#        - localSettings:   $cwd/.claude/settings.local.json
+#        - coworkSettings:  per-cowork-root cowork_settings.json
+#        - policySettings:  $CLAUDE_MANAGED_SETTINGS_DIR/managed-settings.json
+#                           + drop-ins under managed-settings.d/*.json
+#      Harness sets HOME=cwd=$tmpdir and CLAUDE_MANAGED_SETTINGS_DIR=$tmpdir/.policy
+#      so userSettings and projectSettings collapse to the same file path
+#      (cpd's merger dedupes by name, accumulating declaredIn). The oracle
+#      uses `sort -u` here for the same effect: it doesn't care whether a
+#      name was declared in 1 or 5 sources, just that it's a member of the
+#      union.
 ccd_mps=$(jq -r 'keys[]' "$plugins_root/known_marketplaces.json" 2>/dev/null || true)
 cowork_mps=""
 if [ -d "$userdata/local-agent-mode-sessions" ]; then
@@ -61,10 +76,39 @@ if [ -d "$userdata/local-agent-mode-sessions" ]; then
       jq -r 'keys[]' "$f" 2>/dev/null || true
     done)
 fi
-expected_mps=$(printf '%s\n%s\n' "$ccd_mps" "$cowork_mps" | grep -v '^$' | sort -u || true)
+
+# Helper: dump extraKnownMarketplaces keys from one settings file (returns
+# nothing on missing/malformed file or when the key is absent).
+extra_keys() {
+  local f="$1"
+  [ -f "$f" ] || return 0
+  jq -r '(.extraKnownMarketplaces // {}) | keys[]' "$f" 2>/dev/null || true
+}
+
+settings_mps=""
+settings_mps="${settings_mps}$(extra_keys "$home/.claude/settings.json")"$'\n'
+settings_mps="${settings_mps}$(extra_keys "$home/.claude/settings.local.json")"$'\n'
+# Cowork settings: one per cowork root.
+if [ -d "$userdata/local-agent-mode-sessions" ]; then
+  while IFS= read -r f; do
+    [ -n "$f" ] && settings_mps="${settings_mps}$(extra_keys "$f")"$'\n'
+  done < <(find "$userdata/local-agent-mode-sessions" -mindepth 3 -maxdepth 3 \
+    -name cowork_settings.json 2>/dev/null)
+fi
+# Policy settings: harness sets CLAUDE_MANAGED_SETTINGS_DIR=$home/.policy.
+policy_root="$home/.policy"
+settings_mps="${settings_mps}$(extra_keys "$policy_root/managed-settings.json")"$'\n'
+if [ -d "$policy_root/managed-settings.d" ]; then
+  while IFS= read -r f; do
+    [ -n "$f" ] && settings_mps="${settings_mps}$(extra_keys "$f")"$'\n'
+  done < <(find "$policy_root/managed-settings.d" -maxdepth 1 -name '*.json' 2>/dev/null)
+fi
+
+expected_mps=$(printf '%s\n%s\n%s\n' "$ccd_mps" "$cowork_mps" "$settings_mps" \
+  | grep -v '^$' | sort -u || true)
 actual_mps=$(jq -r '.marketplaces[].name' <<<"$cpd_json" | sort -u)
 if [ "$expected_mps" != "$actual_mps" ]; then
-  fail "L-2" "marketplaces[].name != union(CCD, cowork) known_marketplaces keys. expected=[$expected_mps] actual=[$actual_mps]"
+  fail "L-2" "marketplaces[].name != union(CCD, cowork, settings) marketplace keys. expected=[$expected_mps] actual=[$actual_mps]"
 fi
 
 # L-3: every plugins[i].scopes[j].installPath exists on disk.

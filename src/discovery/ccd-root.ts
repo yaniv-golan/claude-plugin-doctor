@@ -10,11 +10,18 @@ import * as path from "node:path";
 import { type KnownMarketplace, parseKnownMarketplaces } from "../known-marketplaces.js";
 import { NotImplementedError, resolveCcdPluginsRoot } from "../paths.js";
 import type { CcdRoot, KnownMarketplaceEntry } from "../types.js";
+import {
+  mergeMarketplaceDeclarations,
+  readCrossCuttingExtraKnownMarketplaces,
+} from "./extra-known-marketplaces.js";
 
 type SystemContext = {
   platform?: NodeJS.Platform;
   home?: string;
   env?: Record<string, string | undefined>;
+  /** Used for `projectSettings` / `localSettings` resolution. Defaults to
+   *  `process.cwd()` when not injected; tests inject a tmp dir. */
+  cwd?: string;
 };
 
 /**
@@ -89,7 +96,16 @@ export function discoverCcdRoot(ctx?: SystemContext): CcdRoot | undefined {
   // Parse known_marketplaces.json. Returns empty array when absent; propagates
   // on malformed JSON (parser already throws a descriptive message).
   const { marketplaces: rawMarketplaces } = parseKnownMarketplaces(knownMarketplacesPath);
-  const marketplaces: KnownMarketplaceEntry[] = rawMarketplaces.map(adaptMarketplace);
+  const knownEntries: KnownMarketplaceEntry[] = rawMarketplaces.map(adaptMarketplace);
+
+  // Merge with cross-cutting `extraKnownMarketplaces` declarations from
+  // settings sources. The CCD root receives all four cross-cutting sources
+  // (userSettings + projectSettings + localSettings + policySettings); cowork
+  // roots receive these PLUS their per-root coworkSettings (handled in
+  // cowork-roots.ts). See PLAN-2026-05-06-tranche-2.md "Per-root vs global
+  // merge semantics".
+  const extras = readCrossCuttingExtraKnownMarketplaces(ctx ?? {});
+  const marketplaces = mergeMarketplaceDeclarations(knownEntries, extras);
 
   return {
     pluginsRoot,

@@ -161,9 +161,26 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
       # `env -i` scrubs the parent environment so the fixture's
       # synthetic HOME really IS the only HOME cpd sees. Preserve PATH
       # so node + cpd can resolve.
-      env -i HOME="$tmpdir" PATH="$PATH" "$CPD_BIN" $cmd $extra $flags \
-        --json --no-progress --no-log-file \
-        > "$stdout_file" 2> "$stderr_file"
+      #
+      # CLAUDE_MANAGED_SETTINGS_DIR redirects the macOS policy-settings reads
+      # introduced in tranche 2 (extraKnownMarketplaces from policySettings)
+      # to a per-fixture path. Without this, cpd would read
+      # `/Library/Application Support/ClaudeCode/managed-settings.json` on
+      # the host — invisible-but-real on machines with MDM policy. Set to a
+      # tmpdir subpath that fixtures can populate if they want to test
+      # policy-settings behavior; otherwise the path is absent and reads
+      # gracefully return [].
+      #
+      # `cd "$tmpdir"` keeps `process.cwd()` inside the fixture so the
+      # `projectSettings` / `localSettings` readers (which resolve from cwd)
+      # don't leak the developer's repo-level `.claude/settings.json` (if
+      # any) into fixture results.
+      ( cd "$tmpdir" && \
+        env -i HOME="$tmpdir" PATH="$PATH" \
+          CLAUDE_MANAGED_SETTINGS_DIR="$tmpdir/.policy" \
+          "$CPD_BIN" $cmd $extra $flags \
+          --json --no-progress --no-log-file \
+          > "$stdout_file" 2> "$stderr_file" )
       cpd_exit=$?
 
       # Compare exit code first.

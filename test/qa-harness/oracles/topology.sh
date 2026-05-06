@@ -30,11 +30,36 @@ case "$exit_code" in
 esac
 
 # T-1: when topology.ccd is present, ccd.marketplaces[].name set ==
-#      known_marketplaces.json top-level keys.
+#      known_marketplaces.json top-level keys ∪ extraKnownMarketplaces
+#      keys from cross-cutting settings sources (gist revision
+#      2026-05-06T11:45:05Z). Cross-cutting sources at the CCD level:
+#      userSettings ($HOME/.claude/settings.json), projectSettings (cwd-
+#      relative — same as userSettings here since the harness sets
+#      HOME=cwd=$tmpdir), localSettings, policySettings (redirected via
+#      CLAUDE_MANAGED_SETTINGS_DIR=$HOME/.policy by the harness driver)
+#      + drop-ins under managed-settings.d/*.json.
+extra_keys() {
+  local f="$1"
+  [ -f "$f" ] || return 0
+  jq -r '(.extraKnownMarketplaces // {}) | keys[]' "$f" 2>/dev/null || true
+}
+
 ccd_present=$(jq -r '.topology.ccd // null | if . == null then "no" else "yes" end' <<<"$cpd_json")
 if [ "$ccd_present" = "yes" ]; then
-  expected_mps=$(jq -r 'keys[]' \
+  base_keys=$(jq -r 'keys[]' \
     "$plugins_root/known_marketplaces.json" 2>/dev/null | sort -u || true)
+  settings_keys=""
+  settings_keys="${settings_keys}$(extra_keys "$home/.claude/settings.json")"$'\n'
+  settings_keys="${settings_keys}$(extra_keys "$home/.claude/settings.local.json")"$'\n'
+  policy_root="$home/.policy"
+  settings_keys="${settings_keys}$(extra_keys "$policy_root/managed-settings.json")"$'\n'
+  if [ -d "$policy_root/managed-settings.d" ]; then
+    while IFS= read -r f; do
+      [ -n "$f" ] && settings_keys="${settings_keys}$(extra_keys "$f")"$'\n'
+    done < <(find "$policy_root/managed-settings.d" -maxdepth 1 -name '*.json' 2>/dev/null)
+  fi
+  expected_mps=$(printf '%s\n%s\n' "$base_keys" "$settings_keys" \
+    | grep -v '^$' | sort -u || true)
   actual_mps=$(jq -r '.topology.ccd.marketplaces[].name' <<<"$cpd_json" 2>/dev/null | sort -u)
   if [ "$expected_mps" != "$actual_mps" ]; then
     fail "T-1" "ccd.marketplaces[].name mismatch. expected=[$expected_mps] actual=[$actual_mps]"
@@ -52,21 +77,40 @@ if [ "$expected_acc" != "$actual_acc" ]; then
 fi
 
 # T-3: per cowork root, marketplaces[].name == top-level keys of that
-# root's cowork_plugins/known_marketplaces.json (NOT directory names).
+# root's cowork_plugins/known_marketplaces.json (NOT directory names),
+# UNION cross-cutting extraKnownMarketplaces declarations (machine-global
+# settings sources are merged into every root) AND that root's own
+# coworkSettings.extraKnownMarketplaces (per-root).
+#
+# Cross-cutting set is the same union computed at T-1 above for CCD.
+# Reuse via local variable to avoid recomputing.
+cross_cutting=$(printf '%s\n' "$settings_keys" | grep -v '^$' | sort -u || true)
+
 while IFS= read -r entry; do
   [ -z "$entry" ] && continue
   acc=$(jq -r '.accountId' <<<"$entry")
   org=$(jq -r '.orgId' <<<"$entry")
   km_path=$(jq -r '.knownMarketplacesPath // empty' <<<"$entry")
+  cs_path=$(jq -r '.coworkSettingsPath // empty' <<<"$entry")
   reported_mps=$(jq -r '.marketplaces[].name // empty' <<<"$entry" | sort -u)
 
+  base=""
   if [ -n "$km_path" ] && [ -f "$km_path" ]; then
-    expected=$(jq -r 'keys[]' "$km_path" 2>/dev/null | sort -u || true)
-    if [ "$reported_mps" != "$expected" ]; then
-      fail "T-3" "cowork[$acc/$org].marketplaces mismatch. expected=[$expected] actual=[$reported_mps]"
-    fi
-  elif [ -n "$reported_mps" ]; then
-    fail "T-3" "cowork[$acc/$org] reports marketplaces=[$reported_mps] but knownMarketplacesPath is absent"
+    base=$(jq -r 'keys[]' "$km_path" 2>/dev/null | sort -u || true)
+  fi
+  cowork_extra=""
+  if [ -n "$cs_path" ] && [ -f "$cs_path" ]; then
+    cowork_extra=$(extra_keys "$cs_path")
+  fi
+  expected=$(printf '%s\n%s\n%s\n' "$base" "$cross_cutting" "$cowork_extra" \
+    | grep -v '^$' | sort -u || true)
+
+  if [ -z "$expected" ] && [ -n "$reported_mps" ]; then
+    fail "T-3" "cowork[$acc/$org] reports marketplaces=[$reported_mps] but no source declared any"
+    continue
+  fi
+  if [ "$reported_mps" != "$expected" ]; then
+    fail "T-3" "cowork[$acc/$org].marketplaces mismatch. expected=[$expected] actual=[$reported_mps]"
   fi
 done < <(jq -c '.topology.cowork[]?' <<<"$cpd_json")
 

@@ -66,7 +66,24 @@ claude plugin uninstall <plugin>@<mp>    # drop the registration entirely
 
 A skills-plugin skill has a `stuckFailureSignature` in its manifest — Claude Desktop's skill-sync hit an error and recorded it. Built-in skills (`schedule`, `setup-cowork`, `consolidate-memory`) are exempt — they're rewritten on every sync from the in-bundle copy and can't go stuck via this path; `cpd` annotates them `(built-in)` and skips the trap.
 
-**Fix:** quit and relaunch Claude Desktop. Focusing the window is unreliable — the focus handler only re-syncs if the last poll was more than 10 minutes ago.
+**Fix:** quit and relaunch Claude Desktop. Focusing the window is unreliable — the focus handler only re-syncs if the last poll was older than the effective sync interval, which defaults to 10 minutes but can be remotely configured via the GrowthBook value `skillsSyncIntervalMs`.
+
+## "Plugin / skill on disk but the running session isn't using it"
+
+Two common causes. Both are session-config-level and not user-toggleable through the Settings UI per the gist:
+
+- **`pluginsEnabled: false`** in the session's `local_<UUID>.json` sidecar — turns off both remote (RPM) and local/classic plugin mounts. Settings UI / CLI plugin ops still work and mutate disk; the running session just won't see results.
+- **`skillsEnabled: false`** — turns off the skills-API tool calls (`list_skills`, `save_skill`, `propose_skills`). The session manager logs `[LocalAgentModeSessionManager] skillsEnabled=false — skipping list_skills/save_skill/propose_skills` as the canary.
+
+`cpd` detects both by reading `<userData>/local-agent-mode-sessions/<acc>/<org>/local_<UUID>.json` files and emits `session-plugins-disabled-detected` / `session-skills-disabled-detected` advisories whenever ≥1 non-archived session has either gate set to `false`.
+
+**Fix:** start a new task / new session. The flags are written per-session and don't apply to a fresh one.
+
+## "I see settings-only marketplaces in `cpd list`"
+
+Marketplaces declared via `extraKnownMarketplaces` in any of `settings.json`, `settings.local.json`, `cowork_settings.json`, or `/Library/Application Support/ClaudeCode/managed-settings.json` (incl. drop-ins under `managed-settings.d/`) are surfaced in `cpd list` with a `(settings-only: <sources>)` annotation. Their `layer1.status` is `skipped` because there's no clone to compare against.
+
+This is intentional — these declarations are real (the CLI reads them), but until `claude plugin marketplace add <source>` materializes a clone for that root, they don't have on-disk content for `cpd` to drift-check. To materialize: run the `marketplace add` command shown in the recommendation.
 
 ## `cpd` exits with `E_PLATFORM_UNSUPPORTED` on Linux/Windows
 

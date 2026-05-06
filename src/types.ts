@@ -108,6 +108,18 @@ export type MarketplaceReport = {
   sourceDetail: string;
   layer1: CheckResult;
   integrityIssues: string[];
+  /** Multi-source declaration attribution. Populated when the marketplace
+   *  was discovered via the merged inventory (known_marketplaces.json +
+   *  extraKnownMarketplaces from settings sources, see
+   *  `src/discovery/extra-known-marketplaces.ts`). Older code paths leave
+   *  this undefined; consumers must treat undefined as "source unknown",
+   *  not as "known_marketplaces only". */
+  declaredIn?: SettingsSource[];
+  /** True when this root has a materialized clone for the marketplace. False
+   *  for settings-only declarations. When undefined, treat as "unknown" —
+   *  callers that branch on `hasClone === false` (settings-only case) must
+   *  use the literal-false comparison. */
+  hasClone?: boolean;
 };
 
 /** Scope values from installed_plugins.json entries.
@@ -166,6 +178,20 @@ export type RpmReport = {
 // rpm/manifest.json) but NOT per-entry manifests (marketplace.json,
 // plugin.json, skills-plugin per-skill manifests). See spec §3.4.
 
+/** Where a marketplace entry was declared. `known_marketplaces.json` is the
+ *  classic on-disk path; the rest are settings-side `extraKnownMarketplaces`
+ *  declarations introduced in CLI 2.1.131 (gist revision 2026-05-06T11:45:05Z).
+ *  A single entry can be declared in multiple sources at once (e.g. a managed
+ *  policy that has been materialized into a local clone via `marketplace add`
+ *  carries both `policySettings` and `known_marketplaces`). */
+export type SettingsSource =
+  | "known_marketplaces"
+  | "userSettings"
+  | "projectSettings"
+  | "localSettings"
+  | "coworkSettings"
+  | "policySettings";
+
 /** One entry from a parsed known_marketplaces.json. Tier A reads this index;
  *  tier C reads the per-marketplace marketplace.json files inside the clone. */
 export type KnownMarketplaceEntry = {
@@ -175,6 +201,16 @@ export type KnownMarketplaceEntry = {
   /** ms epoch; needed for marketplace-update-broken trap detection. */
   lastUpdated?: number;
   raw: Record<string, unknown>;
+  /** Multi-source attribution. Always non-empty when populated by the merge
+   *  pass in `src/discovery/extra-known-marketplaces.ts`. Older code paths
+   *  that haven't been migrated may leave this undefined; consumers must
+   *  treat undefined as "unknown source" rather than "known_marketplaces only". */
+  declaredIn?: SettingsSource[];
+  /** True when this root has a materialized clone for the marketplace. False
+   *  for settings-only declarations (no `installLocation` or no on-disk dir).
+   *  Drift detection that compares against a clone (`marketplace-update-broken`,
+   *  `refresh-needed`, missing-clone synthesis) MUST guard on this. */
+  hasClone?: boolean;
 };
 
 export type CcdRoot = {
@@ -204,6 +240,36 @@ export type CoworkRoot = {
   /** Same parsed-index rationale as CcdRoot. Empty array when
    *  knownMarketplacesPath is undefined or absent. */
   marketplaces: KnownMarketplaceEntry[];
+  /** Per-session feature-gate sidecars (`local_<UUID>.json`). Sparse:
+   *  most session JSONs do not carry the gate fields. Empty array when
+   *  none were found. Sorted by `lastActivityAt desc`. Capped at 2048
+   *  per root; truncation surfaced via `sessionConfigsTruncated`. */
+  sessionConfigs?: SessionConfig[];
+  /** True when the 2048-file cap was hit while enumerating sessionConfigs.
+   *  Caller emits a `session-config-enumeration-truncated` advisory. */
+  sessionConfigsTruncated?: boolean;
+  /** Number of `local_*.json` files seen (may exceed cap). */
+  sessionConfigsTotalScanned?: number;
+};
+
+/** Per-session config sidecar at
+ *  `<userData>/local-agent-mode-sessions/<acc>/<org>/local_<UUID>.json`.
+ *  Carries top-level fields including the sparse-optional `pluginsEnabled` /
+ *  `skillsEnabled` gates that turn whole subsystems off at session start.
+ *  Per gist revision 2026-05-06T11:27:26Z §"Per-session feature gates". */
+export type SessionConfig = {
+  filePath: string;
+  sessionId?: string;
+  /** Sparse-optional: only present when the user toggled away from the
+   *  default-true. Absent === default-on. */
+  pluginsEnabled?: boolean;
+  /** Same shape as pluginsEnabled. When false, the session manager logs
+   *  `[LocalAgentModeSessionManager] skillsEnabled=false — skipping
+   *  list_skills/save_skill/propose_skills`. */
+  skillsEnabled?: boolean;
+  isArchived?: boolean;
+  lastActivityAt?: string;
+  title?: string;
 };
 
 /** Tier A enumerates skill DIRS only — no manifest content parsing.
@@ -220,6 +286,23 @@ export type SkillsPluginSkill = {
    *  reader using BUILTIN_SKILLS. Additive: undefined is equivalent to
    *  false for consumers that haven't adopted the new field yet. */
   isBuiltIn?: boolean;
+  /** True when the skill is a LOCAL-ONLY user-created skill — authored via
+   *  Desktop's `saveLocalSkill` IPC's local-save branch and never uploaded.
+   *  Manifest tags: `creatorType: "user"` AND **literal** `syncManaged: false`
+   *  (conjunction; either alone does NOT qualify). These skills are
+   *  renderer-owned and never go through the API-download/cleanup pass, so
+   *  they're exempt from the stuck-failure trap analogously to built-ins.
+   *
+   *  **Note**: skills the user *uploaded* via `saveLocalSkill`'s upload branch
+   *  (`save_skill` API) re-enter the regular sync cycle and ARE subject to
+   *  the silent-stale bug — they retain `creatorType: "user"` but flip
+   *  `syncManaged` to `true`, and therefore will NOT carry this flag.
+   *
+   *  Populated by tier C's skills-plugin reader; the v0.5 list path in
+   *  `commands/scan.ts` mirrors the population so JSON output is correct on
+   *  that path too. Additive: undefined is equivalent to false for older
+   *  consumers. */
+  isUserCreated?: boolean;
 };
 
 export type SkillsPluginPair = {
@@ -313,6 +396,17 @@ export type ActionRecipe =
     }
   | { kind: "claude_plugin_marketplace_update"; marketplace: string }
   | { kind: "claude_plugin_marketplace_remove"; marketplace: string }
+  | {
+      kind: "claude_plugin_marketplace_add";
+      /** Source URL/path. Per gist revision 2026-05-06T11:45:05Z, the CLI
+       *  takes `<source>` only — the registered marketplace name comes from
+       *  `marketplace.json#name`. Free-form aliases are legacy/manual-edit
+       *  territory only. */
+      source: string;
+      /** New `--scope` flag introduced in CLI 2.1.131. Defaults to `user`
+       *  when omitted (matching CLI default). */
+      scope?: "user" | "project" | "local";
+    }
   // cpd self-invocations — share the runtime via in-process function call,
   // not a subprocess shell.
   | { kind: "cpd_refresh"; marketplace: string }
@@ -415,6 +509,70 @@ export type ScanReport = {
  *  `marketplaceCaches`, `rpmCaches`, and `topology` at the end of the scan. */
 export type ScanSummary = {
   perLayer: Record<Layer, LayerSummary>;
+  /** Free-form advisories surfaced to the user — typically on otherwise-clean
+   *  scans where there is no drift to report but the user should still know
+   *  about a structural blind spot or gotcha. Additive optional field; older
+   *  consumers that don't read it remain compatible. Schema stays at 1.0. */
+  advisories?: ScanAdvisory[];
+};
+
+/** A user-facing advisory tied to a `cpd scan` run. Distinct from a `Drift`
+ *  (which represents an observed inconsistency cpd can recommend a fix for)
+ *  and a `RecommendedAction` (which is the recommended fix). Advisories
+ *  flag situations cpd cannot directly observe but the user should know
+ *  about — e.g. plugin loads via `--plugin-dir` / `--plugin-url` that bypass
+ *  every layer cpd walks.
+ *
+ *  Discriminated union by `id`. `id` values are append-only across versions;
+ *  never rename an emitted value once shipped. New ids extend the union.
+ *  Consumers that read only `message` are unaffected by id additions; those
+ *  that switch on `id` should add a default case that surfaces the message
+ *  even for unknown ids. */
+export type ScanAdvisory =
+  | {
+      id: "clean-scan-runtime-blind-spots";
+      severity: "info";
+      message: string;
+    }
+  | {
+      id: "session-plugins-disabled-detected";
+      severity: "info";
+      message: string;
+      details: SessionGateAdvisoryDetails;
+    }
+  | {
+      id: "session-skills-disabled-detected";
+      severity: "info";
+      message: string;
+      details: SessionGateAdvisoryDetails;
+    }
+  | {
+      id: "session-config-enumeration-truncated";
+      severity: "info";
+      message: string;
+      details: { coworkRootPath: string; capacity: number };
+    };
+
+/** Structured detail for `session-plugins-disabled-detected` /
+ *  `session-skills-disabled-detected` advisories. Numerator/denominator
+ *  framing is critical: `pluginsEnabled` / `skillsEnabled` are sparse-
+ *  optional fields on session JSONs (only written when toggled away from
+ *  default-true), so reporting "N out of M total sessions" miscounts —
+ *  the meaningful denominator is `sessionsWithFieldSet`. */
+export type SessionGateAdvisoryDetails = {
+  /** Total session JSONs scanned (capped at 2048 per cowork root). */
+  totalScanned: number;
+  /** Sessions where the gate field is present at all (the meaningful
+   *  denominator — sessions without the field are default-on). */
+  sessionsWithFieldSet: number;
+  /** Sessions where the gate is `false` and `isArchived !== true`. */
+  disabledSessions: number;
+  /** Up to first 3 affected session IDs, ordered by `lastActivityAt desc`.
+   *  Full UUIDs in JSON output; the human renderer truncates to first 8
+   *  chars to avoid leaking full IDs into shared bug reports (reviewer #4). */
+  exampleSessionIds: string[];
+  /** Sessions with the gate `false` but `isArchived === true`. */
+  archivedDisabledCount: number;
 };
 
 export type LayerSummary = {
