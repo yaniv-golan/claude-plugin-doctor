@@ -20,11 +20,13 @@ import { checkCcdRemoteSsh } from "../caches/ccd-remote-ssh.js";
 import { checkCoworkMirror, snapshotCoworkMirror } from "../caches/cowork-mirror.js";
 import {
   checkInstallSnapshot,
+  readMarketplaceJson,
+  readPluginJsonVersion,
   readPluginSubdir,
   snapshotInstallSnapshot,
 } from "../caches/install-snapshot.js";
 import { checkMarketplaceClone, snapshotMarketplaceClone } from "../caches/marketplace-clone.js";
-import { checkRpmCopy, snapshotRpmCopy } from "../caches/rpm-copy.js";
+import { checkRpmCopy, type MarketplaceCloneHint, snapshotRpmCopy } from "../caches/rpm-copy.js";
 import {
   BUILTIN_SKILLS,
   isUserCreatedManifestEntry,
@@ -173,6 +175,162 @@ function pickActiveCoworkRoot(
     }
   }
   return best ?? roots[0];
+}
+
+/**
+ * Resolve the marketplace-clone version for a single (marketplaceName, pluginName)
+ * pair within one pluginsRoot. Priority chain mirrors
+ * `install-snapshot.ts:resolveVersion`:
+ *   1. `<clone>/<pluginSubdir>/.claude-plugin/plugin.json#version`
+ *   2. `<clone>/.claude-plugin/marketplace.json#plugins[name].version`
+ *
+ * Returns a `MarketplaceCloneHint` with either `version` set, or
+ * `lookupFailure` explaining why no comparison is possible.
+ */
+function resolveCloneVersionInMarketplace(
+  pluginsRoot: string,
+  marketplaceName: string,
+  pluginName: string,
+): MarketplaceCloneHint {
+  const cloneRoot = path.join(pluginsRoot, "marketplaces", marketplaceName);
+  if (!fs.existsSync(cloneRoot)) {
+    return { lookupFailure: "marketplace-clone-unavailable", clonePath: cloneRoot };
+  }
+  // 1. plugin.json-in-clone via the plugin's source subdir.
+  const subdir = readPluginSubdir(pluginsRoot, marketplaceName, pluginName);
+  if (subdir !== undefined) {
+    const v = readPluginJsonVersion(path.join(cloneRoot, subdir));
+    if (v !== undefined) return { version: v, clonePath: cloneRoot };
+  }
+  // 2. marketplace.json#plugins[name].version fallback.
+  const parsed = readMarketplaceJson(pluginsRoot, marketplaceName);
+  if (!parsed.ok) {
+    return { lookupFailure: "marketplace-version-unknown", clonePath: cloneRoot };
+  }
+  const entry = parsed.plugins.find((p) => p.name === pluginName);
+  if (!entry) {
+    return { lookupFailure: "plugin-not-in-marketplace", clonePath: cloneRoot };
+  }
+  if (typeof entry.version === "string" && entry.version.length > 0) {
+    return { version: entry.version, clonePath: cloneRoot };
+  }
+  return { lookupFailure: "marketplace-version-unknown", clonePath: cloneRoot };
+}
+
+/**
+ * Find every locally-cloned, currently-registered marketplace that lists a
+ * plugin by the given name. Used as a fallback when the RPM entry's
+ * `marketplaceName` (a Cowork-backend alias) doesn't match any local
+ * marketplace directory under the user's alias.
+ *
+ * Only considers marketplaces declared in `known_marketplaces.json` — this
+ * excludes orphan directories (e.g. `proof-engine-marketplace.bak` left
+ * behind by manual experiments) that would otherwise cause spurious
+ * ambiguity ("which marketplace is the real one?"). An unregistered
+ * marketplace dir can't actually serve `claude plugin update` either, so
+ * filtering it out aligns with what the rest of the system would resolve to.
+ */
+function findMarketplacesContainingPlugin(pluginsRoot: string, pluginName: string): string[] {
+  const marketplacesDir = path.join(pluginsRoot, "marketplaces");
+  if (!fs.existsSync(marketplacesDir)) return [];
+  const known = parseKnownMarketplaces(path.join(pluginsRoot, "known_marketplaces.json"));
+  const registeredNames = new Set(known.marketplaces.map((m) => m.name));
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(marketplacesDir);
+  } catch {
+    return [];
+  }
+  const matches: string[] = [];
+  for (const name of entries) {
+    if (!registeredNames.has(name)) continue;
+    const parsed = readMarketplaceJson(pluginsRoot, name);
+    if (!parsed.ok) continue;
+    if (parsed.plugins.some((p) => p.name === pluginName)) {
+      matches.push(name);
+    }
+  }
+  return matches;
+}
+
+/**
+ * Resolve the marketplace-clone version for an RPM-installed plugin, so that
+ * `checkRpmCopy` and `snapshotRpmCopy` can perform a no-network Layer 5
+ * freshness comparison against the local clone. Two-tier lookup, repeated
+ * across each `searchPluginsRoot` in order:
+ *
+ *   Tier 1 — Exact `marketplaceName` match: try `<root>/marketplaces/
+ *     <rpmEntry.raw.marketplaceName>/`. Hits when the same alias is used on
+ *     both sides.
+ *
+ *   Tier 2 — Plugin-name cross-reference: scan all local marketplaces under
+ *     `<root>/marketplaces/` for one whose `marketplace.json` lists a plugin
+ *     with the same name. Hits the common case where the RPM entry records
+ *     the Cowork backend's canonical marketplace alias (e.g. "proof-engine")
+ *     but the user added the marketplace to CCD under a different local alias
+ *     (e.g. "proof-engine-marketplace"). Ambiguous matches (≥2 candidates
+ *     in any single root) yield `unknowable` — we don't guess.
+ *
+ * Why multiple search roots? RPM lives in the Cowork session, but
+ * Personal-plugins installs frequently leave no Cowork-side marketplace
+ * clone — the user's local clone is in CCD. So callers should pass at
+ * minimum [activeRootPluginsRoot, ccdPluginsRoot] (de-duplicated).
+ *
+ * Returns a `MarketplaceCloneHint` for `checkRpmCopy`/`snapshotRpmCopy`.
+ */
+function resolveRpmMarketplaceCloneHint(
+  searchPluginsRoots: readonly string[],
+  rpmEntry: RpmEntry,
+): MarketplaceCloneHint {
+  const mpName =
+    typeof rpmEntry.raw.marketplaceName === "string" ? rpmEntry.raw.marketplaceName : undefined;
+  const pluginName = typeof rpmEntry.raw.name === "string" ? rpmEntry.raw.name : undefined;
+  if (!pluginName) {
+    return { lookupFailure: "marketplace-clone-unavailable" };
+  }
+
+  // De-dupe roots while preserving order.
+  const seen = new Set<string>();
+  const roots = searchPluginsRoots.filter((r) => {
+    if (seen.has(r)) return false;
+    seen.add(r);
+    return true;
+  });
+
+  let lastDefiniteFailure: MarketplaceCloneHint | undefined;
+
+  for (const pluginsRoot of roots) {
+    // Tier 1: exact marketplace-name match.
+    if (mpName) {
+      const tier1 = resolveCloneVersionInMarketplace(pluginsRoot, mpName, pluginName);
+      if (tier1.version !== undefined) return tier1;
+      if (tier1.lookupFailure === "plugin-not-in-marketplace") {
+        // Definite "not here" — record but keep searching other roots.
+        lastDefiniteFailure = tier1;
+      }
+    }
+
+    // Tier 2: cross-reference by plugin name across all marketplaces in this root.
+    const candidates = findMarketplacesContainingPlugin(pluginsRoot, pluginName);
+    if (candidates.length === 1) {
+      const matched = candidates[0];
+      if (matched !== undefined) {
+        return resolveCloneVersionInMarketplace(pluginsRoot, matched, pluginName);
+      }
+    }
+    if (candidates.length > 1) {
+      // Genuine ambiguity in this root — multiple local marketplaces declare
+      // a plugin of this name. Surface as unknowable and stop searching.
+      return { lookupFailure: "marketplace-clone-unavailable" };
+    }
+    // candidates.length === 0 → no match in this root; try the next.
+  }
+
+  if (lastDefiniteFailure !== undefined) return lastDefiniteFailure;
+  return {
+    lookupFailure: "marketplace-clone-unavailable",
+    ...(mpName && roots[0] ? { clonePath: path.join(roots[0], "marketplaces", mpName) } : {}),
+  };
 }
 
 function detectMode(
@@ -522,6 +680,11 @@ export function buildSessionGateAdvisories(
  */
 async function runRootPipeline(opts: {
   activePluginsRoot: string;
+  /** CCD's plugins root — used as a fallback search root for RPM-plugin
+   *  marketplace lookups, since Personal-plugins installs frequently rely on
+   *  a CCD-side marketplace clone (no Cowork-side clone is materialized).
+   *  When the active root IS CCD, this is the same path. */
+  ccdPluginsRoot: string;
   activeRootRef: import("../types.js").RootRef;
   /** Pre-merged marketplaces from the topology pass (known_marketplaces.json
    *  + extraKnownMarketplaces from settings sources). When provided, the
@@ -548,6 +711,7 @@ async function runRootPipeline(opts: {
 }): Promise<{ knownMpCount: number; installedPluginCount: number }> {
   const {
     activePluginsRoot,
+    ccdPluginsRoot,
     activeRootRef,
     allCoworkRoots,
     activeCw,
@@ -724,10 +888,12 @@ async function runRootPipeline(opts: {
   if (rpmRoot && activeCw) {
     for (const e of rpmManifestEntries) {
       progress.update("snapshot_caches", ++snapIdx, snapTotal, e.pluginId);
+      const hint = resolveRpmMarketplaceCloneHint([activePluginsRoot, ccdPluginsRoot], e);
       const rpmSnap = snapshotRpmCopy({
         rpmRoot,
         entry: e,
         cowork: { accountId: activeCw.accountId, orgId: activeCw.orgId },
+        marketplaceClone: hint,
       });
       const key = rpmKey(activeRootRef, e.pluginId);
       rpmCaches[key] = [rpmSnap];
@@ -1046,6 +1212,7 @@ export async function runScan(opts: RunScanOpts): Promise<ScanReport> {
       const activeRootRef: { kind: "ccd" } = { kind: "ccd" };
       const result = await runRootPipeline({
         activePluginsRoot: topology.ccd.pluginsRoot,
+        ccdPluginsRoot,
         activeRootRef,
         // Pass the topology's pre-merged marketplace inventory (includes
         // extraKnownMarketplaces from settings sources). The pipeline
@@ -1077,6 +1244,7 @@ export async function runScan(opts: RunScanOpts): Promise<ScanReport> {
       };
       const result = await runRootPipeline({
         activePluginsRoot: path.join(cwRoot.rootPath, "cowork_plugins"),
+        ccdPluginsRoot,
         activeRootRef,
         // Each cowork root carries its own merged marketplace inventory
         // (own known_marketplaces.json + cross-cutting settings + own
@@ -1132,6 +1300,7 @@ export async function runScan(opts: RunScanOpts): Promise<ScanReport> {
 
     const result = await runRootPipeline({
       activePluginsRoot,
+      ccdPluginsRoot,
       activeRootRef,
       allCoworkRoots,
       activeCw: mode === "cowork" ? activeCw : undefined,
@@ -1848,6 +2017,7 @@ export async function runV05Scan(opts: RunScanOpts): Promise<V05ScanResult> {
     let rpmIdx = 0;
     for (const e of rpmManifestEntries) {
       progress.update("check_rpm", ++rpmIdx, rpmManifestEntries.length, e.pluginId);
+      const hint = resolveRpmMarketplaceCloneHint([activePluginsRoot, ccdPluginsRoot], e);
       rpmPlugins.push({
         pluginId: e.pluginId,
         ...(typeof e.raw.name === "string" ? { name: e.raw.name } : {}),
@@ -1855,7 +2025,7 @@ export async function runV05Scan(opts: RunScanOpts): Promise<V05ScanResult> {
           ? { marketplaceName: e.raw.marketplaceName }
           : {}),
         ...(typeof e.raw.marketplaceId === "string" ? { marketplaceId: e.raw.marketplaceId } : {}),
-        layer5: checkRpmCopy({ rpmRoot, entry: e }),
+        layer5: checkRpmCopy({ rpmRoot, entry: e, marketplaceClone: hint }),
       });
     }
   }

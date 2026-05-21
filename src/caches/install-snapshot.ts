@@ -141,7 +141,7 @@ export type CheckArgs = {
   commitsBetweenTruncated?: boolean;
 };
 
-function readMarketplaceJson(
+export function readMarketplaceJson(
   pluginsRoot: string,
   marketplace: string,
 ): { ok: true; plugins: MarketplacePluginEntry[] } | { ok: false; reason: string } {
@@ -267,7 +267,7 @@ export function readPluginSubdir(
   return undefined;
 }
 
-function readPluginJsonVersion(pluginSourcePath: string): string | undefined {
+export function readPluginJsonVersion(pluginSourcePath: string): string | undefined {
   const p = path.join(pluginSourcePath, ".claude-plugin", "plugin.json");
   if (!fs.existsSync(p)) return undefined;
   try {

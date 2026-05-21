@@ -845,6 +845,24 @@ export type RpmCopyData = {
   };
   pluginDirPath: string;
   pluginDirExists: boolean;
+  /** Version comparison between the on-disk RPM plugin.json and the
+   *  marketplace clone's declared version for the same plugin. Populated
+   *  only when both sides yield a version string; otherwise omitted.
+   *  `comparison`: -1 = rpm < clone (stale), 0 = equal, 1 = rpm > clone
+   *  (ahead-of-marketplace — unusual; surface but don't auto-flag). */
+  versionDelta?: {
+    rpm: string;
+    clone: string;
+    comparison: -1 | 0 | 1;
+  };
+  /** Reason the version delta could not be computed, when missing. Surfaced
+   *  in the `unknowable` status detail for transparency. */
+  versionDeltaSkipReason?:
+    | "rpm-plugin-json-missing"
+    | "rpm-plugin-json-unparseable"
+    | "marketplace-clone-unavailable"
+    | "plugin-not-in-marketplace"
+    | "marketplace-version-unknown";
 };
 
 export type SkillsPluginData = {
