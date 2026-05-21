@@ -125,6 +125,46 @@ describe("discoverCoworkRoots", () => {
     expect(roots[0]?.installedPluginsMtime).toBeGreaterThan(0);
   });
 
+  it("reads rpm/manifest.json mtime when file exists", () => {
+    const orgDir = makeOrgDir("acc1", "org1");
+    const rpmDir = path.join(orgDir, "rpm");
+    fs.mkdirSync(rpmDir, { recursive: true });
+    fs.writeFileSync(path.join(rpmDir, "manifest.json"), JSON.stringify({ plugins: [] }));
+
+    const roots = discoverCoworkRoots(ctx());
+    expect(typeof roots[0]?.rpmManifestMtime).toBe("number");
+    expect(roots[0]?.rpmManifestMtime).toBeGreaterThan(0);
+  });
+
+  it("isMostRecent breaks installed_plugins ties on rpm/manifest mtime (Personal-plugins repro)", () => {
+    // Repro: two cowork roots have identical installed_plugins.json mtimes;
+    // one is the truly-active session because Claude Desktop's Personal-plugins
+    // UI just touched its rpm/manifest.json. The active pick should land there.
+    const orgDir1 = makeOrgDir("acc1", "org1");
+    const orgDir2 = makeOrgDir("acc1", "org2");
+
+    for (const orgDir of [orgDir1, orgDir2]) {
+      const cp = path.join(orgDir, "cowork_plugins");
+      fs.mkdirSync(cp, { recursive: true });
+      fs.writeFileSync(
+        path.join(cp, "installed_plugins.json"),
+        JSON.stringify({ version: 2, plugins: {} }),
+      );
+      fs.utimesSync(path.join(cp, "installed_plugins.json"), new Date(1000), new Date(1000));
+    }
+
+    // org2 alone has a recent rpm/manifest.json bump.
+    const rpm2 = path.join(orgDir2, "rpm");
+    fs.mkdirSync(rpm2, { recursive: true });
+    fs.writeFileSync(path.join(rpm2, "manifest.json"), JSON.stringify({ plugins: [] }));
+    fs.utimesSync(path.join(rpm2, "manifest.json"), new Date(9999), new Date(9999));
+
+    const roots = discoverCoworkRoots(ctx());
+    const byOrg = Object.fromEntries(roots.map((r) => [r.orgId, r]));
+    expect(byOrg.org1?.isMostRecent).toBe(false);
+    expect(byOrg.org2?.isMostRecent).toBe(true);
+  });
+
   it("sets isMostRecent on the root with the largest mtime (multi-org)", () => {
     const orgDir1 = makeOrgDir("acc1", "org1");
     const orgDir2 = makeOrgDir("acc1", "org2");

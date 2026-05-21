@@ -91,11 +91,19 @@ export function enumerateCoworkRoots(userDataDir: string): CoworkRootInfo[] {
       } catch {
         mtime = undefined;
       }
+      const rpmManifestFile = path.join(rootDir, "rpm", "manifest.json");
+      let rpmMtime: number | undefined;
+      try {
+        rpmMtime = fs.statSync(rpmManifestFile).mtimeMs;
+      } catch {
+        rpmMtime = undefined;
+      }
       out.push({
         path: rootDir,
         accountId,
         orgId,
         ...(mtime !== undefined ? { installedPluginsMtime: mtime } : {}),
+        ...(rpmMtime !== undefined ? { rpmManifestMtime: rpmMtime } : {}),
       });
     }
   }

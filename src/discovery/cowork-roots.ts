@@ -185,6 +185,18 @@ export function discoverCoworkRoots(ctx?: SystemContext): CoworkRoot[] {
         }
       }
 
+      // Stat rpm/manifest.json for mtime. Considered alongside
+      // installedPluginsMtime by the active-root heuristic — Personal-plugins
+      // installs touch only this file, not installed_plugins.json.
+      let rpmManifestMtime: number | undefined;
+      if (rpmManifestPath !== undefined) {
+        try {
+          rpmManifestMtime = fs.statSync(rpmManifestPath).mtimeMs;
+        } catch {
+          rpmManifestMtime = undefined;
+        }
+      }
+
       // Read known_marketplaces.json if present; empty array otherwise.
       let knownEntries: KnownMarketplaceEntry[] = [];
       if (hasCoworkPlugins) {
@@ -227,6 +239,7 @@ export function discoverCoworkRoots(ctx?: SystemContext): CoworkRoot[] {
         ...(rpmManifestPath !== undefined ? { rpmManifestPath } : {}),
         ...(coworkSettingsPath !== undefined ? { coworkSettingsPath } : {}),
         ...(installedPluginsMtime !== undefined ? { installedPluginsMtime } : {}),
+        ...(rpmManifestMtime !== undefined ? { rpmManifestMtime } : {}),
         ...(sessionEnum.configs.length > 0 ? { sessionConfigs: sessionEnum.configs } : {}),
         ...(sessionEnum.truncated ? { sessionConfigsTruncated: true } : {}),
         ...(sessionEnum.totalScanned > 0

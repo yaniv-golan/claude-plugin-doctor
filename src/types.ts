@@ -97,6 +97,10 @@ export type CoworkRootInfo = {
   accountId: string;
   orgId: string;
   installedPluginsMtime?: number;
+  /** mtime (ms epoch) of `rpm/manifest.json`. Considered alongside
+   *  `installedPluginsMtime` when picking the active root — Personal-plugins
+   *  installs touch only this file, not installed_plugins.json. */
+  rpmManifestMtime?: number;
 };
 
 // MarketplaceReport / PluginReport / RpmReport — used by refresh, list,
@@ -234,7 +238,12 @@ export type CoworkRoot = {
   installedPluginsPath?: string;
   rpmManifestPath?: string;
   installedPluginsMtime?: number;
-  /** mtime-based active-root flag — set per root rather than picking one. */
+  /** mtime (ms epoch) of `rpm/manifest.json`. Considered alongside
+   *  `installedPluginsMtime` when picking the active root — Personal-plugins
+   *  installs touch only this file, not installed_plugins.json. */
+  rpmManifestMtime?: number;
+  /** mtime-based active-root flag — set per root rather than picking one.
+   *  Computed from max(installedPluginsMtime, rpmManifestMtime). */
   isMostRecent: boolean;
   coworkSettingsPath?: string;
   /** Same parsed-index rationale as CcdRoot. Empty array when

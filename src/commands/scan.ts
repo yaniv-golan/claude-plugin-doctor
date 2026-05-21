@@ -32,6 +32,7 @@ import {
   snapshotSkillsPluginPair,
 } from "../caches/skills-plugin.js";
 import { pLimited } from "../concurrency.js";
+import { effectiveActiveMtime } from "../discovery/active-root.js";
 import { discoverTopology } from "../discovery/topology.js";
 import { composeDrift } from "../drift/compose.js";
 import { gitLogBetween } from "../git.js";
@@ -162,9 +163,14 @@ function pickActiveCoworkRoot(
     return roots.find((r) => r.accountId === forcedAccount && r.orgId === forcedOrg);
   }
   let best: CoworkRootInfo | undefined;
+  let bestMtime = Number.NEGATIVE_INFINITY;
   for (const r of roots) {
-    if (r.installedPluginsMtime === undefined) continue;
-    if (!best || (best.installedPluginsMtime ?? 0) < r.installedPluginsMtime) best = r;
+    const m = effectiveActiveMtime(r);
+    if (m === undefined) continue;
+    if (m > bestMtime) {
+      bestMtime = m;
+      best = r;
+    }
   }
   return best ?? roots[0];
 }
@@ -1017,6 +1023,7 @@ export async function runScan(opts: RunScanOpts): Promise<ScanReport> {
       ...(cr.installedPluginsMtime !== undefined
         ? { installedPluginsMtime: cr.installedPluginsMtime }
         : {}),
+      ...(cr.rpmManifestMtime !== undefined ? { rpmManifestMtime: cr.rpmManifestMtime } : {}),
     });
 
     // Emit phase events once for all roots combined.
@@ -1103,7 +1110,7 @@ export async function runScan(opts: RunScanOpts): Promise<ScanReport> {
       ? fs.statSync(ccdInstalledPath).mtimeMs
       : undefined;
     const activeCw = pickActiveCoworkRoot(coworkRoots, opts.coworkAccount, opts.coworkOrg);
-    const cwMtime = activeCw?.installedPluginsMtime;
+    const cwMtime = activeCw ? effectiveActiveMtime(activeCw) : undefined;
     const mode = detectMode(opts.mode as "ccd" | "cowork" | "auto", ccdMtime, cwMtime);
     logger.info("mode_detected", { mode, ccdMtime, cwMtime });
     phaseEnd("detect_mode", t);
@@ -1439,7 +1446,7 @@ export async function runV05Scan(opts: RunScanOpts): Promise<V05ScanResult> {
     ? fs.statSync(ccdInstalledPath).mtimeMs
     : undefined;
   const activeCw = pickActiveCoworkRoot(coworkRoots, opts.coworkAccount, opts.coworkOrg);
-  const cwMtime = activeCw?.installedPluginsMtime;
+  const cwMtime = activeCw ? effectiveActiveMtime(activeCw) : undefined;
   const mode = detectMode(opts.mode, ccdMtime, cwMtime);
   logger.info("mode_detected", { mode, ccdMtime, cwMtime });
   phaseEnd("detect_mode", t);

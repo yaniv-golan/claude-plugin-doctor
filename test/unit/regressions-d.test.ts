@@ -70,14 +70,17 @@ function buildCcdMtimeNewerFixture(home: string): {
     ],
   });
 
-  // Make CCD installed_plugins.json appear newer than cowork's.
-  // (write cowork first, then re-touch CCD so fs.statSync mtime is later)
+  // Make CCD installed_plugins.json appear newer than ALL cowork mtimes.
+  // The active-root heuristic considers both installed_plugins.json AND
+  // rpm/manifest.json (Phase 1) — back-date both cowork-side files so CCD
+  // genuinely wins the mode decision.
   const now = Date.now();
   fs.utimesSync(
     path.join(coworkPlugins, "installed_plugins.json"),
     new Date(now - 60000),
     new Date(now - 60000),
   );
+  fs.utimesSync(path.join(rpm, "manifest.json"), new Date(now - 60000), new Date(now - 60000));
   fs.utimesSync(path.join(ccdPlugins, "installed_plugins.json"), new Date(now), new Date(now));
 
   return { acc, org, ccdPlugins, coworkRoot };
@@ -206,13 +209,16 @@ describe("Bug 2 — nameCollisions cross-store detection fires when RPM data ava
       ],
     });
 
-    // Make CCD newer so detectMode() picks mode="ccd"
+    // Make CCD newer than ALL cowork-side mtimes (installed_plugins +
+    // rpm/manifest) so detectMode() picks mode="ccd" under the Phase 1
+    // multi-signal active-root heuristic.
     const now = Date.now();
     fs.utimesSync(
       path.join(coworkPlugins, "installed_plugins.json"),
       new Date(now - 60000),
       new Date(now - 60000),
     );
+    fs.utimesSync(path.join(rpm, "manifest.json"), new Date(now - 60000), new Date(now - 60000));
     fs.utimesSync(path.join(ccdPlugins, "installed_plugins.json"), new Date(now), new Date(now));
 
     const { runList } = await import("../../src/commands/list.js");

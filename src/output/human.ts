@@ -12,6 +12,7 @@ export { formatRecCmd } from "./cmd-format.js";
 export { humanStatus, ICON_COLOR, ICON_PLAIN, statusToken } from "./status-translate.js";
 export { shortId } from "./uuid-format.js";
 
+import { effectiveActiveMtime } from "../discovery/active-root.js";
 import { preferredScope } from "../installed-plugins.js";
 import { parsePluginId, pluginRefKey, stripRootSuffix } from "../refs.js";
 import type { ManualStepSourceContext } from "./cmd-format.js";
@@ -1817,21 +1818,25 @@ export function renderHumanList(report: ListReport, opts: RenderOpts): string {
 
   if (report.coworkRoots.length > 0) {
     // 3.2: structured rendering with active marker, tildified path, age band.
-    // Active marker is computed renderer-side from max installedPluginsMtime.
-    const maxMtime = Math.max(
-      ...report.coworkRoots.map((r) => r.installedPluginsMtime ?? 0).filter((m) => m > 0),
-    );
+    // Active marker is computed renderer-side from max(installed_plugins.json
+    // mtime, rpm/manifest.json mtime). Personal-plugins installs touch only
+    // the rpm manifest, so the bare installed_plugins mtime under-weights
+    // recently-active sessions.
+    const effectiveMtimes = report.coworkRoots
+      .map((r) => effectiveActiveMtime(r))
+      .filter((m): m is number => m !== undefined && Number.isFinite(m));
+    const maxMtime = effectiveMtimes.length > 0 ? Math.max(...effectiveMtimes) : 0;
     lines.push(s.bold(`Claude Cowork session storage roots (${report.coworkRoots.length})`));
     for (const r of report.coworkRoots) {
-      const isActive =
-        r.installedPluginsMtime !== undefined && r.installedPluginsMtime === maxMtime;
+      const m = effectiveActiveMtime(r);
+      const isActive = m !== undefined && Number.isFinite(m) && m === maxMtime;
       const marker = isActive ? "[active]" : "        ";
       const accDisplay = opts.verbose ? r.accountId : shortId(r.accountId);
       const orgDisplay = opts.verbose ? r.orgId : shortId(r.orgId);
       const tilded = tildify(r.path);
       let agePart = "";
-      if (r.installedPluginsMtime && r.installedPluginsMtime > 0) {
-        const diffSec = Math.round((Date.now() - r.installedPluginsMtime) / 1000);
+      if (m !== undefined && Number.isFinite(m) && m > 0) {
+        const diffSec = Math.round((Date.now() - m) / 1000);
         agePart = `   ${relativeBand(diffSec)}`;
       }
       lines.push(`  ${marker} account ${accDisplay}  org ${orgDisplay}   ${tilded}${agePart}`);
