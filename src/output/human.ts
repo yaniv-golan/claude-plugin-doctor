@@ -818,12 +818,101 @@ export function formatSourceUrl(
 /** Renderer for the RPM-only match case (Cowork "Personal plugins" UI install
  *  path). The CCD-style PluginReport doesn't apply here; render the data we
  *  have from the RPM manifest entry's CheckResult evidence. */
+/**
+ * Renders the standalone "Cowork in-app install" section for an RpmReport —
+ * the per-layer block + alias note + fix line, but NOT the page header or
+ * footer. Used both by the RPM-only render path (full-page view) and by the
+ * cross-surface render path that appends this block after the CCD-side
+ * layers when the same plugin name is found in both surfaces.
+ */
+function renderRpmSection(
+  rpmMatch: NonNullable<CheckReport["rpmMatch"]>,
+  fullReport: CheckReport["fullReport"],
+  opts: RenderOpts,
+): string[] {
+  const c = opts.color;
+  const s = styler(c);
+  const lines: string[] = [];
+  const { rpmPlugin, marketplaceAliasDiffers } = rpmMatch;
+
+  // Layer-5 status + humanized detail.
+  const r = rpmPlugin.layer5;
+  const rawUpdatedAt = typeof r.evidence.updatedAt === "string" ? r.evidence.updatedAt : undefined;
+  const humanizedDetail = rawUpdatedAt
+    ? r.detail.replace(rawUpdatedAt, humanTimestamp(rawUpdatedAt))
+    : r.detail;
+  lines.push("Cowork in-app install");
+  const tok = statusToken(r.status, c);
+  lines.push(`  ${tok} — ${humanizedDetail.split("\n")[0]}`);
+  const restDetail = humanizedDetail.split("\n").slice(1);
+  for (const dl of restDetail) {
+    if (dl.trim()) lines.push(`     ${dl.trimStart()}`);
+  }
+
+  // Naming-difference note (demoted, secondary).
+  if (marketplaceAliasDiffers) {
+    const typedAlias = marketplaceAliasDiffers.typedAs;
+    const rpmAlias = marketplaceAliasDiffers.actual;
+    const allCcdMarketplaces = [
+      ...(fullReport.crossModeMarketplaces ?? []),
+      ...fullReport.marketplaces,
+    ];
+    const ccdMarketplace = allCcdMarketplaces.find((m) => m.name === typedAlias);
+    const typedAliasLabel = ccdMarketplace
+      ? `you typed (your local alias in standalone Claude Code) : ${typedAlias}`
+      : `you typed (not a known marketplace alias)              : ${typedAlias}`;
+    const noteLines: string[] = [
+      "",
+      "Naming note (informational — not a problem):",
+      "This marketplace has different names in your two installs of Claude.",
+      `  ${typedAliasLabel}`,
+      `  Claude Cowork registered it as                         : ${rpmAlias}`,
+    ];
+    if (!ccdMarketplace) {
+      noteLines.push("  (run `cpd list` to see the marketplace names you have on disk.)");
+    }
+    if (opts.verbose && rpmPlugin.marketplaceId !== undefined) {
+      noteLines.push(
+        `  Cowork backend marketplace ID                          : ${rpmPlugin.marketplaceId}`,
+      );
+    }
+    const sourceUrl = formatSourceUrl(ccdMarketplace);
+    if (sourceUrl) {
+      noteLines.push(`  source URL (from standalone Claude Code)               : ${sourceUrl}`);
+      noteLines.push(
+        "  (Cowork's in-app installs don't track the source URL — that's why these names diverge.)",
+      );
+    } else {
+      noteLines.push(
+        "cpd matched these by plugin name. Run `cpd explain` for why the names can differ.",
+      );
+    }
+    const noteText = noteLines.join("\n");
+    lines.push(c ? s.dim(noteText) : noteText);
+  }
+
+  if (r.recommendation?.cmd) {
+    lines.push("");
+    lines.push("Fix:");
+    lines.push(`  ${s.cmd(r.recommendation.cmd)}`);
+  } else if (r.recommendation?.action && (r.status === "stale" || r.status === "missing")) {
+    // No machine-runnable cmd, but the recommendation has actionable text —
+    // surface it so the user sees the next step (e.g. the Uninstall/Install
+    // sequence in Claude Desktop). Matches the manual-fix conventions used
+    // by the marketplace_clone and install_snapshot renderers.
+    lines.push("");
+    lines.push(`Fix: ${r.recommendation.action}`);
+  }
+
+  return lines;
+}
+
 function renderHumanCheckRpmOnly(report: CheckReport, opts: RenderOpts): string {
   const c = opts.color;
   const s = styler(c);
   const lines: string[] = [];
   if (!report.rpmMatch) return ""; // unreachable; type-narrows for TS
-  const { rpmPlugin, marketplaceAliasDiffers } = report.rpmMatch;
+  const { rpmPlugin } = report.rpmMatch;
 
   // Mode-fallback note (when cpd had to look in the other mode to find it).
   const fb = (report.fullReport as { _modeFallback?: { requested: string; foundIn: string } })
@@ -847,78 +936,9 @@ function renderHumanCheckRpmOnly(report: CheckReport, opts: RenderOpts): string 
     lines.push(`Backend ID:    ${rpmPlugin.pluginId}  ${s.dim("(Cowork backend identifier)")}`);
   }
 
-  // Layer-5 status + humanized detail. Detail strings can carry an ISO
-  // timestamp from the layer module; convert to human-friendly form here
-  // (mirrors what cpd list does at the rpm-plugins section).
-  const r = rpmPlugin.layer5;
-  const rawUpdatedAt = typeof r.evidence.updatedAt === "string" ? r.evidence.updatedAt : undefined;
-  const humanizedDetail = rawUpdatedAt
-    ? r.detail.replace(rawUpdatedAt, humanTimestamp(rawUpdatedAt))
-    : r.detail;
   lines.push("");
-  lines.push("Cowork in-app install");
-  const tok = statusToken(r.status, c);
-  lines.push(`  ${tok} — ${humanizedDetail.split("\n")[0]}`);
-  const restDetail = humanizedDetail.split("\n").slice(1);
-  for (const dl of restDetail) {
-    if (dl.trim()) lines.push(`     ${dl.trimStart()}`);
-  }
-
-  // Naming-difference note (demoted, secondary). Only render when there is
-  // actually a divergence — and frame it as "FYI, this is fine" so users
-  // don't read a drift-free check as a problem report.
-  if (marketplaceAliasDiffers) {
-    const typedAlias = marketplaceAliasDiffers.typedAs;
-    const rpmAlias = marketplaceAliasDiffers.actual;
-
-    const allCcdMarketplaces = [
-      ...(report.fullReport.crossModeMarketplaces ?? []),
-      ...report.fullReport.marketplaces,
-    ];
-    const ccdMarketplace = allCcdMarketplaces.find((m) => m.name === typedAlias);
-
-    const typedAliasLabel = ccdMarketplace
-      ? `you typed (your local alias in standalone Claude Code) : ${typedAlias}`
-      : `you typed (not a known marketplace alias)              : ${typedAlias}`;
-
-    const noteLines: string[] = [
-      "",
-      "Naming note (informational — not a problem):",
-      "This marketplace has different names in your two installs of Claude.",
-      `  ${typedAliasLabel}`,
-      `  Claude Cowork registered it as                         : ${rpmAlias}`,
-    ];
-
-    if (!ccdMarketplace) {
-      noteLines.push("  (run `cpd list` to see the marketplace names you have on disk.)");
-    }
-
-    if (opts.verbose && rpmPlugin.marketplaceId !== undefined) {
-      noteLines.push(
-        `  Cowork backend marketplace ID                          : ${rpmPlugin.marketplaceId}`,
-      );
-    }
-
-    const sourceUrl = formatSourceUrl(ccdMarketplace);
-    if (sourceUrl) {
-      noteLines.push(`  source URL (from standalone Claude Code)               : ${sourceUrl}`);
-      noteLines.push(
-        "  (Cowork's in-app installs don't track the source URL — that's why these names diverge.)",
-      );
-    } else {
-      noteLines.push(
-        "cpd matched these by plugin name. Run `cpd explain` for why the names can differ.",
-      );
-    }
-
-    const noteText = noteLines.join("\n");
-    lines.push(c ? s.dim(noteText) : noteText);
-  }
-
-  if (r.recommendation?.cmd) {
-    lines.push("");
-    lines.push("Fix:");
-    lines.push(`  ${s.cmd(r.recommendation.cmd)}`);
+  for (const ln of renderRpmSection(report.rpmMatch, report.fullReport, opts)) {
+    lines.push(ln);
   }
 
   // Footer
@@ -1362,6 +1382,28 @@ export function renderHumanCheck(report: CheckReport, opts: RenderOpts): string 
       );
       lines.push("");
     }
+  }
+
+  // Cross-surface: the same plugin name is also installed via Claude Cowork's
+  // Personal-plugins UI (RPM). The CCD answer above doesn't tell the user
+  // about the RPM-side copy, which can drift independently — render the RPM
+  // verdict so a user with both installs sees both surfaces. Exit code
+  // (computed in runV05Check) already aggregates worst-status across them.
+  if (report.rpmMatch) {
+    lines.push(s.bold("Also installed via Claude Cowork (Personal plugins)"));
+    const rm = report.rpmMatch.rpmPlugin;
+    const inlineId = `${rm.name ?? "(unknown)"}@${rm.marketplaceName ?? "(unknown)"}`;
+    lines.push(`  ${s.dim(inlineId)}`);
+    if (opts.verbose) {
+      lines.push(`  ${s.dim(`Backend ID: ${rm.pluginId}`)}`);
+    }
+    for (const ln of renderRpmSection(report.rpmMatch, report.fullReport, opts)) {
+      // Skip the "Cowork in-app install" sub-header — the section header
+      // above ("Also installed via …") already labels this block.
+      if (ln === "Cowork in-app install") continue;
+      lines.push(ln);
+    }
+    lines.push("");
   }
 
   // Footer

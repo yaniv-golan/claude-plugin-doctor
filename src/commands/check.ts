@@ -256,7 +256,9 @@ export type V05CheckReport = {
   };
   /** Set when ≥2 RPM entries share the typed plugin name and no exact-id match
    *  exists. The renderer surfaces all candidates and exits 64 (E_USAGE).
-   *  Only set when `rpmMatch` is NOT set (they are mutually exclusive). */
+   *  Only set when `rpmMatch` is NOT set (mutually exclusive WITH `rpmMatch`,
+   *  but NOT with `plugin` — when both `plugin` and ≥2 RPM matches exist, we
+   *  prefer the unambiguous CCD answer and suppress this field). */
   rpmMatchAmbiguous?: {
     candidates: RpmCandidateForDisambiguation[];
   };
@@ -360,11 +362,18 @@ export async function runV05Check(opts: RunCheckOpts): Promise<V05CheckReport> {
     };
   }
 
-  // Check RPM-name match in the primary scan. If found, the plugin IS installed
-  // in the requested mode (just via RPM), so we should NOT fall back.
-  // Change: use filter instead of find to detect multi-match (item 4.1).
+  // RPM-name lookup in the primary scan. ALWAYS run — even when the plugin
+  // was found in CCD's `plugins[]` — because the same plugin can be installed
+  // in BOTH surfaces and the two copies can disagree (CCD fresh, RPM stale,
+  // or vice versa). The renderer surfaces both surfaces when both fire;
+  // exit code reflects the worst across them.
+  //
+  // When `plugin` is set AND ≥2 RPM matches exist, we suppress the
+  // ambiguous-disambiguation block: the user got a definitive answer for the
+  // CCD-style id they typed, and an arbitrary "pick one" prompt would be
+  // surprising. Multi-RPM-only-match still triggers disambiguation.
   let rpmMatchAmbiguous: V05CheckReport["rpmMatchAmbiguous"];
-  if (!plugin) {
+  {
     const rpmMatches = fullReport.rpmPlugins.filter((p) => p.name === pluginName);
     if (rpmMatches.length === 1) {
       const rpm = rpmMatches[0] as import("../types.js").RpmReport;
@@ -374,10 +383,11 @@ export async function runV05Check(opts: RunCheckOpts): Promise<V05CheckReport> {
           ? { marketplaceAliasDiffers: { typedAs: marketplaceName, actual: rpm.marketplaceName } }
           : {}),
       };
-    } else if (rpmMatches.length >= 2) {
-      // Primary mode has ≥2 matches — ambiguous; emit disambiguation block.
+    } else if (rpmMatches.length >= 2 && !plugin) {
+      // Primary mode has ≥2 matches and no CCD answer — emit disambiguation.
       rpmMatchAmbiguous = { candidates: rpmMatches.map(makeRpmCandidate) };
     }
+    // (rpmMatches.length === 0 → nothing to surface from RPM.)
   }
 
   // Fallback: if not found in EITHER plugins[] OR rpmPlugins[] AND the user
@@ -443,21 +453,28 @@ export async function runV05Check(opts: RunCheckOpts): Promise<V05CheckReport> {
     }
   }
 
-  // Exit code: RPM-only matches use rpm_copy layer status from layer5.
-  // Ambiguous RPM match → 64 (E_USAGE — multiple matches; pick one).
+  // Exit code: aggregate the worst status across every surface the plugin
+  // appears in (CCD plugin layers + RPM layer 5). Ambiguous RPM match → 64.
   let exitCode: 0 | 2 | 3 | 64;
   if (rpmMatchAmbiguous) {
     exitCode = 64;
-  } else if (plugin) {
-    exitCode = computeV05PluginExitCode(plugin, marketplace);
-  } else if (rpmMatch) {
-    const rpmStatus = rpmMatch.rpmPlugin.layer5.status;
-    const hasCmd = rpmMatch.rpmPlugin.layer5.recommendation?.cmd !== undefined;
-    if (rpmStatus === "stale" || rpmStatus === "missing") {
-      exitCode = hasCmd ? 2 : 3;
-    } else {
-      exitCode = 0;
+  } else if (plugin || rpmMatch) {
+    const codes: Array<0 | 2 | 3> = [];
+    if (plugin) {
+      const c = computeV05PluginExitCode(plugin, marketplace);
+      if (c !== 64) codes.push(c);
     }
+    if (rpmMatch) {
+      const rpmStatus = rpmMatch.rpmPlugin.layer5.status;
+      const hasCmd = rpmMatch.rpmPlugin.layer5.recommendation?.cmd !== undefined;
+      if (rpmStatus === "stale" || rpmStatus === "missing") {
+        codes.push(hasCmd ? 2 : 3);
+      } else {
+        codes.push(0);
+      }
+    }
+    // Worst-wins precedence: 3 (manual) > 2 (fixable) > 0 (no drift).
+    exitCode = codes.includes(3) ? 3 : codes.includes(2) ? 2 : 0;
   } else {
     exitCode = 2; // not installed anywhere
   }
