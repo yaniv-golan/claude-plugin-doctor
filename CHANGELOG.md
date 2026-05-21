@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-21
+
+This release closes the "Personal-plugins drift goes undetected" hole described in `docs/internal/SPEC.md` §3.3 Layer 3 / Layer 5 and §15. Concrete repro: a plugin installed via Claude Desktop → Settings → Plugins shows the previous version (e.g. `proof-engine 1.41`) while upstream is at the new one (`1.42`), and prior `cpd check` reported "everything fresh, exit 0". Three compounding gaps were responsible — all fixed in this release.
+
 ### Fixed
 
 - **Stale Personal-plugins installs no longer reported as fresh.** Three compounding gaps were hiding the case where Claude Desktop's Personal-plugins panel installs a plugin at an older version than upstream (concrete repro: `proof-engine 1.42` upstream, `1.41` in Claude Desktop, `cpd check` reported exit 0):

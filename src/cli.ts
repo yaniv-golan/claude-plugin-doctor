@@ -27,7 +27,7 @@ import { formatVerboseLine } from "./output/verbose.js";
 import { Progress } from "./progress.js";
 import type { LogLevel } from "./types.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.3.0";
 
 const program = new Command();
 program
