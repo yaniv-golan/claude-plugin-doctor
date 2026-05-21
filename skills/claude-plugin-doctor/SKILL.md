@@ -5,7 +5,7 @@ description: >-
 compatibility: "Requires `cpd` on PATH (`npm i -g claude-plugin-doctor`). macOS-only. Designed for Claude Code and Claude Cowork (shared plugin runtime)."
 metadata:
   author: Yaniv Golan
-  version: 0.2.0
+  version: 0.3.0
 ---
 
 # claude-plugin-doctor (cpd)
