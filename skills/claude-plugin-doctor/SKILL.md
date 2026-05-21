@@ -87,6 +87,16 @@ The output is **exactly one JSON document**. Parse it once and branch in this or
 
 7. *(Per-plugin evidence)* For `bump-needed` (and `refresh-needed` when applicable), `cpd check --json`'s `plugin.checks.install_snapshot.evidence.commitsBetween` carries the commits between the user's installed SHA and the marketplace clone HEAD, scoped to that plugin's subdir. Each entry is `{sha, subject}`; `commitsBetweenTruncated: true` indicates a cap was hit. Use the subjects to decide whether the divergence reflects real plugin code changes (bump truly needed) or docs/CI-only commits (silent no-op is correct, ignore). Falls back to absent when SHAs aren't both known or git wasn't available.
 
+## Layer-status playbook (read `cpd check` per-layer verdicts)
+
+Some per-layer verdicts in `cpd check` are NOT modeled as entries in `drifts[]`. Translate them by inspecting the per-layer `CheckResult` directly:
+
+| Where | When | What to tell the user |
+|---|---|---|
+| `rpmPlugins[<i>].layer5.status === "stale"` | The plugin is installed via Claude Desktop's Personal-plugins UI (RPM) and the on-disk `plugin.json#version` is behind the local marketplace clone. `evidence.rpmVersion` and `evidence.cloneVersion` carry the two version strings. | "Claude Desktop's Personal-plugins copy is out of date (X vs marketplace Y)." The fix is `recommendation.action` — typically: *Open Claude Desktop → Settings → Plugins → `<name>` → Uninstall, then Install (or wait for the next auto-sync)*. No machine-runnable `cmd` because the Personal-plugins UI doesn't have a CLI surface; do NOT try to script it. |
+| `rpmPlugins[<i>].layer5.status === "unknowable"` | `evidence.skipReason` explains why no comparison was possible (`marketplace-clone-unavailable`, `plugin-not-in-marketplace`, `rpm-plugin-json-missing`, etc.). | "cpd can't tell if this Personal-plugins install is current — `<reason>`." For `marketplace-clone-unavailable`, suggest adding the marketplace in standalone Claude Code via `claude plugin marketplace add <repo>` so the next check can compare. Don't try to guess freshness. |
+| `cpd check <P>@<MP>` output contains an `Also installed via Claude Cowork (Personal plugins)` section | The same plugin name exists in BOTH standalone Claude Code (CCD) and Claude Desktop's Personal-plugins UI, and they may have drifted independently. Both surfaces are reported; the exit code is worst-status across them. | Surface BOTH verdicts to the user. If CCD is fresh but RPM is stale (or vice versa), the relevant fix may differ per surface — don't conflate them. The `Naming note` block (if present) explains why the two surfaces have different marketplace aliases (Cowork backend alias vs user's local `marketplace add` alias). |
+
 ## Drift-kind playbook
 
 For each entry in `drifts[]`, recognize the kind and present accordingly. The recommendation is already in `recommendations[]`; this table is for *explaining* the situation to the user.

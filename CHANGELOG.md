@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Stale Personal-plugins installs no longer reported as fresh.** Three compounding gaps were hiding the case where Claude Desktop's Personal-plugins panel installs a plugin at an older version than upstream (concrete repro: `proof-engine 1.42` upstream, `1.41` in Claude Desktop, `cpd check` reported exit 0):
+  1. **Active-Cowork-session pick** now considers `max(installed_plugins.json mtime, rpm/manifest.json mtime)`. Personal-plugins installs touch only `rpm/manifest.json`, so the previous "installed_plugins.json mtime only" heuristic misclassified the truly-active session. (Layer 3 in §3.3 of SPEC; new `effectiveActiveMtime` helper in `src/discovery/active-root.ts`.)
+  2. **Layer 5 freshness** now compares the on-disk RPM `plugin.json#version` against the local marketplace clone (no-network). Two-tier lookup: exact `marketplaceName` match, then cross-reference by plugin name across registered marketplaces (filtered through `known_marketplaces.json` so orphan `.bak` dirs don't cause spurious ambiguity). `unknowable` when no comparable clone is locally available.
+  3. **`cpd check`** now surfaces the RPM layer **alongside** the CCD plugin layers when the same plugin name exists in both surfaces — previously it short-circuited on the first CCD match. Exit code aggregates worst-status across the two surfaces (3 > 2 > 0).
+
+### Added
+
+- New `effectiveActiveMtime(root)` export in `src/discovery/active-root.ts` for callers that need a single "active" pick independently of the per-root `isMostRecent` flag.
+- `CoworkRoot.rpmManifestMtime?: number` and `CoworkRootInfo.rpmManifestMtime?: number` on the type level (additive, optional).
+- `RpmCopyData.versionDelta` and `RpmCopyData.versionDeltaSkipReason` evidence fields (additive, optional).
+- `checkRpmCopy` and `snapshotRpmCopy` accept an optional `marketplaceClone: MarketplaceCloneHint` input enabling the Layer 5 version comparison. Calls without this field fall back to the legacy directory-existence verdict for back-compat with existing tests.
+- New `MarketplaceCloneHint` exported type from `src/caches/rpm-copy.ts`.
+- `readPluginJsonVersion` and `readMarketplaceJson` re-exported from `src/caches/install-snapshot.ts` so callers outside that module can share the resolver primitives.
+- New "Also installed via Claude Cowork (Personal plugins)" section in the human `cpd check` renderer when both CCD and RPM surfaces resolve.
+- `runRootPipeline` (v1.0 scan path) takes a new `ccdPluginsRoot` param as a fallback search root for RPM-plugin marketplace lookups.
+
+### Tests
+
+- 11 new tests: tie-breaking and single-signal cases in `test/unit/discovery/active-root.test.ts`; RPM-manifest mtime population in `test/unit/discovery/cowork-roots.test.ts`; stale/fresh/ahead/unknowable branches in `test/unit/caches/rpm-copy.test.ts`; cross-surface integration test in `test/integration/check-cross-surface.test.ts`. Total: 1212/1212 pass.
+
 ## [0.2.0] - 2026-05-06
 
 This release absorbs the 2026-05-06 validation pass against Claude Desktop `1.6259.1` and the gist's two follow-up revisions (`T11:27:26Z` and `T11:45:05Z`). The audit baseline behind these notes is in `docs/internal/VALIDATION-claude-desktop-code-2026-05-06.md`; the gist's current revision references standalone CLI `2.1.131` and the gist's own retest reports same observed behaviors at `2.1.131` as at the audited `2.1.129`.
