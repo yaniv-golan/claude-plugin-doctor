@@ -177,4 +177,27 @@ describe("runRefresh targets the root that owns the named marketplace (CCD vs Co
     });
     expect(report.marketplace).toBe("demo");
   });
+
+  it("honors an explicit --mode cowork instead of auto-redirecting to the owning root", async () => {
+    // "demo" is owned by CCD. The user explicitly forces cowork mode. Auto-
+    // resolution must be SKIPPED — explicit intent wins — so refresh looks only
+    // in the cowork root (which does not register "demo") and reports it as not
+    // registered, rather than silently redirecting to the CCD root.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "cpd-rr-"));
+    tmp.push(home);
+    const { cwPlugins } = ccdWithDemo(home);
+    fs.writeFileSync(path.join(cwPlugins, "known_marketplaces.json"), JSON.stringify({}));
+
+    await expect(
+      runRefresh({
+        home,
+        platform: "darwin",
+        env: { HOME: home },
+        mode: "cowork",
+        noNetwork: true,
+        marketplaceName: "demo",
+        claudeRunner: noopClaude,
+      }),
+    ).rejects.toThrow(/is not registered/i);
+  });
 });

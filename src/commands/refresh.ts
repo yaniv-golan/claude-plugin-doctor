@@ -264,12 +264,15 @@ export async function runRefresh(opts: RunRefreshOpts): Promise<RefreshReport> {
   // Resolve which root actually owns the named marketplace and pin the inner
   // scans to it. runV05Scan otherwise picks one root by installed_plugins mtime,
   // which is wrong when the marketplace lives in the other root (the CCD-vs-Cowork
-  // bug). Skip auto-resolution when the user explicitly pinned a cowork root via
-  // --cowork-account/--cowork-org — honor their intent.
-  const userPinnedCowork =
-    typeof opts.coworkAccount === "string" && typeof opts.coworkOrg === "string";
+  // bug). Skip auto-resolution when the user expressed an explicit root
+  // preference — `--mode ccd|cowork` or a `--cowork-account/--cowork-org` pin —
+  // and honor their intent. Only the default `--mode all|auto` auto-resolves.
+  const userPinnedRoot =
+    (typeof opts.coworkAccount === "string" && typeof opts.coworkOrg === "string") ||
+    opts.mode === "ccd" ||
+    opts.mode === "cowork";
   let rootPin: Partial<RunScanOpts> = {};
-  if (!userPinnedCowork) {
+  if (!userPinnedRoot) {
     const resolved = resolveTargetRootForMarketplace({
       marketplaceName: opts.marketplaceName,
       platform: opts.platform,
