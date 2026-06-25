@@ -104,7 +104,7 @@ export function resolveTargetRootForMarketplace(args: {
   }
 
   if (candidates.length === 0) {
-    return { directive: undefined, searched, ambiguous: false };
+    return { searched, ambiguous: false };
   }
 
   candidates.sort((a, b) => {
@@ -112,5 +112,9 @@ export function resolveTargetRootForMarketplace(args: {
     return b.mtime - a.mtime;
   });
 
-  return { directive: candidates[0].directive, searched, ambiguous: candidates.length > 1 };
+  const best = candidates[0];
+  if (best === undefined) {
+    return { searched, ambiguous: false };
+  }
+  return { directive: best.directive, searched, ambiguous: candidates.length > 1 };
 }
