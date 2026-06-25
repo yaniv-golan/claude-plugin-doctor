@@ -5,6 +5,7 @@ import { type ClaudeCliResult, runClaudeCli } from "../claude-cli.js";
 import { CpdError } from "../errors.js";
 import { Logger } from "../logger.js";
 import { Progress } from "../progress.js";
+import { resolveTargetRootForMarketplace } from "../target-root.js";
 import type { CheckResult, PluginReport } from "../types.js";
 import { type RunScanOpts, runV05Scan } from "./scan.js";
 
@@ -210,7 +211,43 @@ export async function runRefresh(opts: RunRefreshOpts): Promise<RefreshReport> {
 
   // Inner scans use silentProgress so their phase events don't pollute the outer
   // timeline. Agents see exactly three refresh_* phases plus a single scan_done.
-  const innerOpts: RunScanOpts = { ...opts, progress: silentProgress(), logger };
+
+  // Resolve which root actually owns the named marketplace and pin the inner
+  // scans to it. runV05Scan otherwise picks one root by installed_plugins mtime,
+  // which is wrong when the marketplace lives in the other root (the CCD-vs-Cowork
+  // bug). Skip auto-resolution when the user explicitly pinned a cowork root via
+  // --cowork-account/--cowork-org — honor their intent.
+  const userPinnedCowork =
+    typeof opts.coworkAccount === "string" && typeof opts.coworkOrg === "string";
+  let rootPin: Partial<RunScanOpts> = {};
+  if (!userPinnedCowork) {
+    const resolved = resolveTargetRootForMarketplace({
+      marketplaceName: opts.marketplaceName,
+      platform: opts.platform,
+      home: opts.home,
+      env: opts.env,
+    });
+    if (resolved.ambiguous) {
+      logger.warn("refresh_root_ambiguous", {
+        marketplace: opts.marketplaceName,
+        searched: resolved.searched,
+      });
+    }
+    if (resolved.directive?.kind === "ccd") {
+      rootPin = { mode: "ccd" };
+    } else if (resolved.directive?.kind === "cowork") {
+      rootPin = {
+        mode: "cowork",
+        coworkAccount: resolved.directive.accountId,
+        coworkOrg: resolved.directive.orgId,
+      };
+    }
+    logger.info("refresh_root_resolved", {
+      marketplace: opts.marketplaceName,
+      directive: resolved.directive?.kind ?? "none",
+    });
+  }
+  const innerOpts: RunScanOpts = { ...opts, ...rootPin, progress: silentProgress(), logger };
 
   logger.info("refresh_start", { marketplace: opts.marketplaceName });
   progress?.start("refresh_before_scan");
@@ -222,7 +259,7 @@ export async function runRefresh(opts: RunRefreshOpts): Promise<RefreshReport> {
   if (!beforeMp) {
     throw new CpdError(
       "E_USAGE",
-      `Marketplace "${opts.marketplaceName}" is not registered. Try \`cpd list\`.`,
+      `Marketplace "${opts.marketplaceName}" is not registered in any plugins root cpd searched. Try \`cpd list\`.`,
     );
   }
   const beforePlugins = before.plugins.filter((p) => p.marketplace === opts.marketplaceName);
