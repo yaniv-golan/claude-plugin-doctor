@@ -198,9 +198,17 @@ export function discoverCoworkRoots(ctx?: SystemContext): CoworkRoot[] {
       }
 
       // Read known_marketplaces.json if present; empty array otherwise.
+      // A malformed/locked file in ONE Cowork root must not abort discovery for
+      // every command (parseKnownMarketplaces throws on bad JSON). Skip just this
+      // root's marketplaces and keep going — same swallow-and-continue posture as
+      // the readdirSync/statSync catches above in this loop.
       let knownEntries: KnownMarketplaceEntry[] = [];
       if (hasCoworkPlugins) {
-        knownEntries = readMarketplaces(coworkPluginsDir);
+        try {
+          knownEntries = readMarketplaces(coworkPluginsDir);
+        } catch {
+          knownEntries = [];
+        }
       }
 
       // Read this cowork root's per-root coworkSettings.extraKnownMarketplaces
