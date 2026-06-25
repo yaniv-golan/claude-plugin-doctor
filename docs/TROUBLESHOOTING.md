@@ -97,6 +97,12 @@ If you see truncation, file an issue with the run's NDJSON log (`~/.claude-plugi
 
 Run with no flags first — `cpd` walks both standalone Claude Code and Claude Cowork by default. If you originally passed `--mode cowork` (or `--mode ccd`) and the plugin is in the other install, `cpd` will fall back and surface a one-line note explaining what it found.
 
+## `cpd refresh <mp>` says "is not registered" or "no local clone" but `cpd scan` lists the marketplace
+
+`refresh <mp>` operates on the plugins root that *owns* the named marketplace — standalone Claude Code (CCD, `~/.claude/plugins/`) or a specific Claude Cowork root. A marketplace registered in one root stays refreshable even when the other root was used more recently. To force a specific root instead, pass `--mode ccd` or `--mode cowork` (or pin a Cowork root with `--cowork-account <id> --cowork-org <id>`) — an explicit choice is honored as-is and is not auto-redirected.
+
+If you are on `cpd` ≤ 0.3.0, upgrade: earlier versions picked the root for `refresh`/`list` by `installed_plugins.json` modification time, so a marketplace living in the other root would be reported "is not registered" (or `--force-fetch` would say "no local clone") even though `cpd scan` listed it. As a workaround on the older version, force the owning root with `--mode ccd` / `--mode cowork`.
+
 ## I want to see what `cpd` is doing in real time
 
 ```bash
