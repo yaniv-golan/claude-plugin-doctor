@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Discovery no longer aborts on one bad Cowork root: a malformed or locked `known_marketplaces.json` in any single Cowork root previously threw and failed `scan`/`refresh`/`list` for every marketplace. The bad root is now skipped.
+- `refresh <marketplace>` resolved the active plugins root by `installed_plugins.json` mtime, so a CCD marketplace could not be refreshed while a Cowork root had a newer mtime — `cpd refresh` reported "is not registered" or "no local clone" for a marketplace that `cpd scan` listed normally. `refresh` now resolves the root that owns the named marketplace and operates there.
+- `refresh --force-fetch <mp>` refused with "no local clone (it must be a github/git source…)" whenever the scan could not resolve the clone's `headLocal`, even though the clone was present and a valid git repo. The gate now checks that the clone dir exists and is a git repo (what `git fetch && git reset --hard` needs) and gives a distinct, path-specific error per case.
+
+(See `docs/internal/PLAN-refresh-reliability.md`.)
+
 ## [0.3.0] - 2026-05-21
 
 This release closes the "Personal-plugins drift goes undetected" hole described in `docs/internal/SPEC.md` §3.3 Layer 3 / Layer 5 and §15. Concrete repro: a plugin installed via Claude Desktop → Settings → Plugins shows the previous version (e.g. `proof-engine 1.41`) while upstream is at the new one (`1.42`), and prior `cpd check` reported "everything fresh, exit 0". Three compounding gaps were responsible — all fixed in this release.
