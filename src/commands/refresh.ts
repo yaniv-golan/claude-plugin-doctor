@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { type ClaudeCliResult, runClaudeCli } from "../claude-cli.js";
 import { CpdError } from "../errors.js";
+import { isGitRepo } from "../git.js";
 import { Logger } from "../logger.js";
 import { Progress } from "../progress.js";
 import { resolveTargetRootForMarketplace } from "../target-root.js";
@@ -317,13 +318,17 @@ export async function runRefresh(opts: RunRefreshOpts): Promise<RefreshReport> {
   // shape of result so the downstream RefreshReport is identical.
   let claudeUpdate: { ok: boolean; exitCode: number; stderr: string };
   if (opts.forceFetch) {
-    const cloneDir = (beforeMp.layer1.evidence.cloneDir as string | undefined) ?? "";
-    if (!cloneDir || !beforeMp.layer1.evidence.headLocal) {
-      throw new CpdError(
-        "E_USAGE",
-        `Cannot force-fetch "${opts.marketplaceName}": no local clone (it must be a github/git source with an existing clone on disk).`,
-      );
+    const evidenceCloneDir = (beforeMp.layer1.evidence.cloneDir as string | undefined) ?? "";
+    const gate = evaluateForceFetchPreconditions({
+      marketplaceName: opts.marketplaceName,
+      cloneDir: evidenceCloneDir,
+      cloneDirExists: evidenceCloneDir ? fs.existsSync(evidenceCloneDir) : false,
+      cloneDirIsGitRepo: evidenceCloneDir ? isGitRepo(evidenceCloneDir) : false,
+    });
+    if (!gate.ok) {
+      throw new CpdError(gate.code, gate.message);
     }
+    const cloneDir = gate.cloneDir;
     logger.info("force_fetch_start", { marketplace: opts.marketplaceName, cloneDir });
     const updT0 = Date.now();
     progress?.start("refresh_claude_update");
