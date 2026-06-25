@@ -1,6 +1,6 @@
 {
   "name": "claude-plugin-doctor",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Diagnose drift across the six cache layers of the Claude Code / Claude Desktop plugin system. Bundles a skill that drives the cpd CLI from inside Claude Code or Claude Cowork.",
   "author": {
     "name": "Yaniv Golan",
