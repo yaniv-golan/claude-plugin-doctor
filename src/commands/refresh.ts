@@ -71,6 +71,54 @@ export function computeRefreshExitCode(
   return Math.max(postScanExitCode, !claudeUpdateOk ? 3 : 0, anyChainFailure ? 3 : 0) as 0 | 2 | 3;
 }
 
+export type ForceFetchGate =
+  | { ok: true; cloneDir: string }
+  | { ok: false; code: "E_USAGE"; message: string };
+
+/**
+ * Decide whether `--force-fetch` may run for a marketplace.
+ *
+ * The bypass is `git fetch origin && git reset --hard origin/<branch>` against
+ * the clone (runForceFetch). It resolves the branch itself and needs only a
+ * clone dir that exists on disk and is a git repo. It deliberately does NOT
+ * depend on the scan having resolved `headLocal` — the prior guard did, which
+ * wrongly refused to run in exactly the broken states (mid-upgrade, missing
+ * marketplace.json, corrupt HEAD) the bypass exists to repair.
+ *
+ * Pure — caller supplies the FS observations. Exported for unit testing, same
+ * pattern as computeRefreshExitCode.
+ */
+export function evaluateForceFetchPreconditions(args: {
+  marketplaceName: string;
+  cloneDir: string;
+  cloneDirExists: boolean;
+  cloneDirIsGitRepo: boolean;
+}): ForceFetchGate {
+  const { marketplaceName, cloneDir, cloneDirExists, cloneDirIsGitRepo } = args;
+  if (!cloneDir) {
+    return {
+      ok: false,
+      code: "E_USAGE",
+      message: `Cannot force-fetch "${marketplaceName}": could not determine the marketplace clone path. Run \`cpd scan\` to check where cpd is looking.`,
+    };
+  }
+  if (!cloneDirExists) {
+    return {
+      ok: false,
+      code: "E_USAGE",
+      message: `Cannot force-fetch "${marketplaceName}": no clone found at ${cloneDir}. It may be installed under a different root (CCD vs Cowork) or not installed — run \`cpd scan\` to see where cpd is looking.`,
+    };
+  }
+  if (!cloneDirIsGitRepo) {
+    return {
+      ok: false,
+      code: "E_USAGE",
+      message: `Cannot force-fetch "${marketplaceName}": ${cloneDir} exists but is not a git repo (.git/ missing), so there is nothing to fetch into. Reinstall the marketplace.`,
+    };
+  }
+  return { ok: true, cloneDir };
+}
+
 /** Default git runner: spawn the system `git` binary. Tests can override
  *  via opts.gitRunner. Bounded by GIT_FETCH_TIMEOUT_MS so a hung fetch
  *  can't deadlock the refresh path; same pattern as `gitLsRemote` in git.ts. */
