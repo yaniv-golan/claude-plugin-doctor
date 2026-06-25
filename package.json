@@ -75,5 +75,10 @@
     "tsx": "^4.19.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1",
+    "vite": "^8.0.16",
+    "js-yaml": "^4.2.0"
   }
 }
