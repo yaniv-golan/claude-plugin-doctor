@@ -93,6 +93,71 @@ describe("runRefresh targets the root that owns the named marketplace (CCD vs Co
     );
   });
 
+  it("finds a Cowork-owned marketplace even when the CCD root's mtime is newer", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "cpd-rr-"));
+    tmp.push(home);
+
+    // CCD root: present but does NOT own "demo".
+    const ccd = path.join(home, ".claude", "plugins");
+    fs.mkdirSync(ccd, { recursive: true });
+    fs.writeFileSync(path.join(ccd, "known_marketplaces.json"), JSON.stringify({}));
+    fs.writeFileSync(
+      path.join(ccd, "installed_plugins.json"),
+      JSON.stringify({ version: 1, plugins: {} }),
+    );
+
+    // Cowork root: owns "demo".
+    const cwPlugins = path.join(
+      home,
+      "Library",
+      "Application Support",
+      "Claude",
+      "local-agent-mode-sessions",
+      "acc1",
+      "org1",
+      "cowork_plugins",
+    );
+    fs.mkdirSync(cwPlugins, { recursive: true });
+    const clone = path.join(cwPlugins, "marketplaces", "demo");
+    gitInit(clone);
+    fs.mkdirSync(path.join(clone, ".claude-plugin"), { recursive: true });
+    fs.writeFileSync(
+      path.join(clone, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({ name: "demo", plugins: [] }),
+    );
+    fs.writeFileSync(
+      path.join(cwPlugins, "known_marketplaces.json"),
+      JSON.stringify({ demo: { source: { source: "github", repo: "x/demo" } } }),
+    );
+    fs.writeFileSync(
+      path.join(cwPlugins, "installed_plugins.json"),
+      JSON.stringify({ version: 1, plugins: {} }),
+    );
+
+    // CCD mtime is NEWER than Cowork — old mtime-based detectMode would pick CCD
+    // and miss "demo". This is the inverse of the CCD-owned test's mtime bias.
+    const now = new Date();
+    const old = new Date(Date.now() - 3_600_000);
+    fs.utimesSync(path.join(ccd, "installed_plugins.json"), now, now);
+    fs.utimesSync(path.join(cwPlugins, "installed_plugins.json"), old, old);
+
+    const report = await runRefresh({
+      home,
+      platform: "darwin",
+      env: { HOME: home },
+      mode: "all",
+      noNetwork: true,
+      marketplaceName: "demo",
+      claudeRunner: noopClaude,
+    });
+
+    expect(report.marketplace).toBe("demo");
+    // Discriminating assertion: the inner scan resolved the COWORK clone, not a CCD path.
+    expect(report.before.layer1.evidence.cloneDir).toContain(
+      path.join("cowork_plugins", "marketplaces", "demo"),
+    );
+  });
+
   it("a corrupt unrelated Cowork known_marketplaces.json does not abort refresh of a CCD marketplace", async () => {
     // Relies on Phase A: discoverTopology no longer throws on the corrupt file,
     // and the resolver's own catch keeps it from being the first throw site.
